@@ -1,0 +1,33 @@
+graph TD
+  subgraph A[Off-Chain - Platform Services & Frontend]
+    UIA[User Purchase Interface] -->|1. Select Event/Ticket| Indexer
+    MUI[Merchant Management UI] -->|Configure Event/Price| DB[[Database/API]]
+    Indexer --> UIA
+    DB --> UIA
+  end
+
+  subgraph B[On-Chain - Solana Blockchain]
+    TP{Ticketing Program - purchase_and_mint}
+    USDT_M[USDT Mint]
+    NFT_M[NFT Mint - New]
+    PV[Platform USDT Vault]
+    MV[Merchant USDT Vault]
+  end
+
+  User[User Wallet] -->|2. Confirm Purchase - Sign Transaction| TP
+
+  TP -->|3. CPI: USDT Transfer| USDT_M
+  User_ATA[User USDT ATA] -->|USDT P| TP
+
+  TP -->|4. CPI: Mint NFT - Token-2022| NFT_M
+  TP -->|5. CPI: Set NFT Extensions - Seat, is_scanned=false| NFT_M
+
+  TP -->|6a. CPI: Transfer - Merchant Net P - $0.1| MV
+  TP -->|6b. CPI: Transfer - Platform Mint Fee $0.1| PV
+
+  TP -->|7. Asset Transfer| User_NFT_ATA[User NFT ATA]
+
+  TP -.->|8. Broadcast Tx Result| Solana_Net
+  Solana_Net -->|9. Index Result - New NFT, Balances| Indexer
+
+  Indexer -->|10. Update UI - Ticket Confirmed| UIA

@@ -1,0 +1,29 @@
+graph TD
+    subgraph A[Off-Chain - Platform Services & Frontend]
+        UIA[User Trading Interface]
+    end
+
+    subgraph B[On-Chain - Solana Blockchain]
+        MP{Marketplace Program - swap_ticket}
+        NFT_M[NFT Mint]
+        PV[Platform USDT Vault]
+        MV[Merchant USDT Vault]
+    end
+
+    UserA[User A - Seller] -->|1. List - Sign Transaction| MP
+    MP -->|2. Asset Escrow| Escrow[NFT Escrow Account - PDA]
+
+    UserB[User B - Buyer] -->|3. Purchase - Sign Transaction| MP
+
+    MP -->|4. Atomic Start: CPI: USDT Transfer| USDT_M[USDT Mint]
+    UserB_ATA[User B USDT ATA] -->|USDT P| MP
+
+    MP -->|5a. CPI: Transfer - Platform 2% Fee| PV
+    MP -->|5b. CPI: Transfer - Merchant 10% Royalty/Uplift Fee| MV
+    MP -->|5c. CPI: Transfer - Seller Net Income| UserA_ATA[User A USDT ATA]
+
+    MP -->|6. CPI: NFT Transfer| UserB_NFT_ATA[User B NFT ATA]
+    Escrow -->|6. NFT Transfer| MP
+
+    MP -.->|7. Broadcast Tx Result| Solana_Net
+    Solana_Net -->|8. Index Result - Ownership Change, Balances| Indexer
