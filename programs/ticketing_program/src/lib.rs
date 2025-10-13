@@ -90,7 +90,7 @@ pub mod ticketing_program {
         event.name = name.clone();
         event.symbol = symbol.clone();
         event.expiry_timestamp = expiry_timestamp;
-        event.bump = *ctx.bumps.get("event").unwrap();
+        event.bump = ctx.bumps.event;
 
         emit!(EventCreated {
             event_id,
@@ -140,7 +140,7 @@ pub mod ticketing_program {
         if accounts.platform_config.platform_authority != accounts.platform_authority.key() {
             return Err(ErrorCode::InvalidPlatformAuthority.into());
         }
-        if accounts.merchant_usdt_vault.authority != accounts.event.merchant_key {
+        if accounts.merchant_usdt_vault.owner != accounts.event.merchant_key {
             return Err(ErrorCode::InvalidMerchantAuthority.into());
         }
 
@@ -150,7 +150,7 @@ pub mod ticketing_program {
             .ok_or(ErrorCode::InsufficientFunds)?;
 
         // Get PDA bump for mint authority
-        let bump = *ctx.bumps.get("mint_authority").unwrap();
+        let bump = ctx.bumps.mint_authority;
         let auth_seeds = &[MINT_AUTH_SEED, &[bump]];
         let signer_seeds = &[&auth_seeds[..]];
 
@@ -261,21 +261,22 @@ pub mod ticketing_program {
             &accounts.ticket_mint.key(),
             None,
             spl_token_2022::instruction::AuthorityType::MintTokens,
-            &ctx.accounts.mint_authority.key(),
-            &[&ctx.accounts.mint_authority.key()],
+            &accounts.mint_authority.key(),
+            &[&accounts.mint_authority.key()],
         )?;
         invoke_signed(
             &set_authority_ix,
             &[
-                ctx.accounts.ticket_mint.to_account_info(),
-                ctx.accounts.mint_authority.to_account_info(),
-                ctx.accounts.token_program.to_account_info(),
+                accounts.ticket_mint.to_account_info(),
+                accounts.mint_authority.to_account_info(),
+                accounts.token_program.to_account_info(),
             ],
             signer_seeds,
         )?;
 
         // Mark ticket as minted
         accounts.seat_account.is_minted = true;
+        accounts.seat_account.bump = ctx.bumps.seat_account;
 
         // Emit event
         emit!(TicketMinted {
@@ -285,7 +286,7 @@ pub mod ticketing_program {
             event_id: event_id.clone(),
             ticket_price: ticket_price_usdt,
             merchant: accounts.event.merchant_key,
-            seat_number,
+            seat_number: seat_number.clone(),
             name: accounts.event.name.clone(),
             symbol: accounts.event.symbol.clone(),
             uri: accounts.event.uri.clone(),
@@ -371,15 +372,15 @@ pub mod ticketing_program {
         if accounts.merchant.key() != accounts.event.merchant_key {
             return Err(ErrorCode::InvalidMerchantAuthority.into());
         }
-        if accounts.mint.key() != accounts.event.mint {
-            return Err(ErrorCode::InvalidMint.into());
-        }
+        // if accounts.mint.key() != accounts.event.mint {
+        //     return Err(ErrorCode::InvalidMint.into());
+        // }
         if !accounts.seat_account.is_minted {
             return Err(ErrorCode::TicketNotMinted.into());
         }
 
         // Update seat number in additionalMetadata
-        let bump = *ctx.bumps.get("mint_authority").unwrap();
+        let bump = ctx.bumps.mint_authority;
         let auth_seeds = &[MINT_AUTH_SEED, &[bump]];
         let signer_seeds = &[&auth_seeds[..]];
 
@@ -402,7 +403,7 @@ pub mod ticketing_program {
         emit!(SeatNumberUpdated {
             ticket_id: ticket_id.clone(),
             event_id: event_id.clone(),
-            new_seat_number,
+            new_seat_number: new_seat_number.clone(),
             merchant: accounts.merchant.key(),
             timestamp: Clock::get()?.unix_timestamp,
         });
@@ -565,8 +566,8 @@ pub struct ScanTicket<'info> {
     #[account(mut)]
     pub merchant: Signer<'info>,
     #[account(
-        seeds = [TICKET_SEED, ticket_id.as_bytes(), hash(event.uri.as_bytes()).to_bytes().as_slice()],
-        bump
+        seeds = [TICKET_SEED, ticket_id.as_bytes(), event.key().as_ref()],
+        bump = seat_account.bump
     )]
     pub seat_account: Account<'info, SeatStatus>,
     #[account(
@@ -589,8 +590,8 @@ pub struct UpdateSeatNumber<'info> {
     #[account(seeds = [MINT_AUTH_SEED], bump)]
     pub mint_authority: UncheckedAccount<'info>,
     #[account(
-        seeds = [TICKET_SEED, ticket_id.as_bytes(), hash(event.uri.as_bytes()).to_bytes().as_slice()],
-        bump
+        seeds = [TICKET_SEED, ticket_id.as_bytes(), event.key().as_ref()],
+        bump = seat_account.bump
     )]
     pub seat_account: Account<'info, SeatStatus>,
     #[account(
@@ -648,10 +649,11 @@ impl Events {
 pub struct SeatStatus {
     pub is_minted: bool,
     pub is_scanned: bool,
+    pub bump: u8,
 }
 
 impl SeatStatus {
-    pub const LEN: usize = 1 + 1; // bool + bool
+    pub const LEN: usize = 1 + 1 + 1; // bool + bool + u8
 }
 
 // EVENTS
