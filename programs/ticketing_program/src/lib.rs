@@ -42,7 +42,7 @@ pub mod ticketing_program {
         }
         config.platform_authority = platform_authority;
         config.usdt_mint = usdt_mint;
-        config.bump = *ctx.bumps.get("platform_config").unwrap();
+        config.bump = ctx.bumps.platform_config;
 
         emit!(PlatformConfigInitialized {
             platform_authority,
@@ -89,7 +89,6 @@ pub mod ticketing_program {
         event.merchant_key = merchant_key;
         event.name = name.clone();
         event.symbol = symbol.clone();
-        event.mint = ctx.accounts.mint.key();
         event.expiry_timestamp = expiry_timestamp;
         event.bump = *ctx.bumps.get("event").unwrap();
 
@@ -99,7 +98,6 @@ pub mod ticketing_program {
             merchant_key,
             name,
             symbol,
-            mint: ctx.accounts.mint.key(),
             expiry_timestamp,
             timestamp: Clock::get()?.unix_timestamp,
         });
@@ -130,10 +128,7 @@ pub mod ticketing_program {
         if accounts.usdt_mint.key() != accounts.platform_config.usdt_mint {
             return Err(ErrorCode::InvalidUsdtMint.into());
         }
-        if accounts.mint.key() != accounts.event.mint {
-            return Err(ErrorCode::InvalidMint.into());
-        }
-        if accounts.mint.decimals != 0 || accounts.mint.supply != 0 {
+        if accounts.ticket_mint.decimals != 0 || accounts.ticket_mint.supply != 0 {
             return Err(ErrorCode::MintNotInitialized.into());
         }
         if accounts.seat_account.is_minted {
@@ -186,7 +181,7 @@ pub mod ticketing_program {
             CpiContext::new_with_signer(
                 accounts.token_program.to_account_info(),
                 token::MintTo {
-                    mint: accounts.mint.to_account_info(),
+                    mint: accounts.ticket_mint.to_account_info(),
                     to: accounts.user_nft_ata.to_account_info(),
                     authority: accounts.mint_authority.to_account_info(),
                 },
@@ -198,15 +193,15 @@ pub mod ticketing_program {
         // Update ticket metadata (name, symbol, uri, seat_number)
         let update_name_ix = update_field(
             &TOKEN_2022_PROGRAM_ID,
-            &accounts.mint.key(),
+            &accounts.ticket_mint.key(),
             &accounts.mint_authority.key(),
             Field::Name,
             accounts.event.name.clone(),
-        )?;
+        );
         invoke_signed(
             &update_name_ix,
             &[
-                accounts.mint.to_account_info(),
+                accounts.ticket_mint.to_account_info(),
                 accounts.mint_authority.to_account_info(),
             ],
             signer_seeds,
@@ -214,15 +209,15 @@ pub mod ticketing_program {
 
         let update_symbol_ix = update_field(
             &TOKEN_2022_PROGRAM_ID,
-            &accounts.mint.key(),
+            &accounts.ticket_mint.key(),
             &accounts.mint_authority.key(),
             Field::Symbol,
             accounts.event.symbol.clone(),
-        )?;
+        );
         invoke_signed(
             &update_symbol_ix,
             &[
-                accounts.mint.to_account_info(),
+                accounts.ticket_mint.to_account_info(),
                 accounts.mint_authority.to_account_info(),
             ],
             signer_seeds,
@@ -230,15 +225,15 @@ pub mod ticketing_program {
 
         let update_uri_ix = update_field(
             &TOKEN_2022_PROGRAM_ID,
-            &accounts.mint.key(),
+            &accounts.ticket_mint.key(),
             &accounts.mint_authority.key(),
             Field::Uri,
             accounts.event.uri.clone(),
-        )?;
+        );
         invoke_signed(
             &update_uri_ix,
             &[
-                accounts.mint.to_account_info(),
+                accounts.ticket_mint.to_account_info(),
                 accounts.mint_authority.to_account_info(),
             ],
             signer_seeds,
@@ -246,15 +241,15 @@ pub mod ticketing_program {
 
         let update_seat_number_ix = update_field(
             &TOKEN_2022_PROGRAM_ID,
-            &accounts.mint.key(),
+            &accounts.ticket_mint.key(),
             &accounts.mint_authority.key(),
             Field::Key("seat_number".to_string()),
             seat_number.clone(),
-        )?;
+        );
         invoke_signed(
             &update_seat_number_ix,
             &[
-                accounts.mint.to_account_info(),
+                accounts.ticket_mint.to_account_info(),
                 accounts.mint_authority.to_account_info(),
             ],
             signer_seeds,
@@ -263,7 +258,7 @@ pub mod ticketing_program {
         // Close mint authority
         let set_authority_ix = spl_token_2022::instruction::set_authority(
             &TOKEN_2022_PROGRAM_ID,
-            &accounts.mint.key(),
+            &accounts.ticket_mint.key(),
             None,
             spl_token_2022::instruction::AuthorityType::MintTokens,
             &ctx.accounts.mint_authority.key(),
@@ -272,7 +267,7 @@ pub mod ticketing_program {
         invoke_signed(
             &set_authority_ix,
             &[
-                ctx.accounts.mint.to_account_info(),
+                ctx.accounts.ticket_mint.to_account_info(),
                 ctx.accounts.mint_authority.to_account_info(),
                 ctx.accounts.token_program.to_account_info(),
             ],
@@ -394,7 +389,7 @@ pub mod ticketing_program {
             &accounts.mint_authority.key(),
             Field::Key("seat_number".to_string()),
             new_seat_number.clone(),
-        )?;
+        );
         invoke_signed(
             &update_metadata_ix,
             &[
