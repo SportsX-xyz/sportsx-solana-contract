@@ -11,7 +11,7 @@ use spl_token_metadata_interface::{
 };
 use solana_program::{program::invoke_signed, pubkey::Pubkey, hash::hash};
 
-declare_id!("TICKETS99999999999999999999999999999999999");
+declare_id!("tDdGYG37gZufntQqs7ZPuiSRyrceNP5ZdygqVQLjUGw");
 
 // Constants
 const MINT_AUTH_SEED: &[u8] = b"MINT_AUTH";
@@ -152,7 +152,7 @@ pub mod ticketing_program {
         // Calculate merchant revenue
         let merchant_revenue = ticket_price_usdt
             .checked_sub(PLATFORM_MINT_FEE)
-            .ok_or_else(|| error!(ErrorCode::InsufficientFunds, "Ticket price too low to cover platform fee"))?;
+            .ok_or(ErrorCode::InsufficientFunds)?;
 
         // Get PDA bump for mint authority
         let bump = *ctx.bumps.get("mint_authority").unwrap();
@@ -524,8 +524,6 @@ pub struct PurchaseAndMint<'info> {
     #[account(
         init,
         payer = user,
-        signer,
-        space = 8 + Mint::LEN + ExtensionType::get_alloc_size(&[ExtensionType::MetadataPointer]),
         mint::decimals = 0,
         mint::authority = mint_authority,
         owner = token_program.key()
