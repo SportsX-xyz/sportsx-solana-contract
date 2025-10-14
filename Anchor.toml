@@ -8,15 +8,14 @@ skip-lint = false
 [programs.devnet]
 ticketing_program = "tDdGYG37gZufntQqs7ZPuiSRyrceNP5ZdygqVQLjUGw"
 
-[programs.localnet]
-sportsx_tickets = "Ar6bBGtVRRW4gfSYWBVqXQJCnbY1qo1jUvxE917V44t5"
 
 [registry]
-url = "https://api.apr.dev"
+url = "https://anchor.projectserum.com"
 
 [provider]
 cluster = "devnet"
 wallet = "~/.config/solana/id.json"
+#rpc = "https://tyo74.nodes.rpcpool.com"
 
 [scripts]
 test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
