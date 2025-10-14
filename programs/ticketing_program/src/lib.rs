@@ -532,6 +532,7 @@ pub struct PurchaseAndMint<'info> {
         associated_token::authority = user
     )]
     pub user_nft_ata: Box<Account<'info, TokenAccount>>,
+    /// CHECK: Validate address by deriving pda
     #[account(seeds = [MINT_AUTH_SEED], bump)]
     pub mint_authority: UncheckedAccount<'info>,
     #[account(
@@ -587,6 +588,7 @@ pub struct UpdateSeatNumber<'info> {
         token::token_program = token_program
     )]
     pub mint: Box<Account<'info, Mint>>,
+    /// CHECK: Validate address by deriving pda
     #[account(seeds = [MINT_AUTH_SEED], bump)]
     pub mint_authority: UncheckedAccount<'info>,
     #[account(
@@ -607,7 +609,7 @@ pub struct UpdateSeatNumber<'info> {
 #[instruction(ticket_id: String, event_id: String)]
 pub struct QueryTicketStatus<'info> {
     #[account(
-        seeds = [TICKET_SEED, ticket_id.as_bytes(), hash(event.uri.as_bytes()).to_bytes().as_slice()],
+        seeds = [TICKET_SEED, ticket_id.as_bytes(), event.key().as_ref()],
         bump
     )]
     pub seat_account: Account<'info, SeatStatus>,
