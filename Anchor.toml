@@ -5,6 +5,9 @@ package_manager = "yarn"
 resolution = true
 skip-lint = false
 
+[programs.localnet]
+ticketing_program = "tDdGYG37gZufntQqs7ZPuiSRyrceNP5ZdygqVQLjUGw"
+
 [programs.devnet]
 ticketing_program = "tDdGYG37gZufntQqs7ZPuiSRyrceNP5ZdygqVQLjUGw"
 
@@ -13,7 +16,8 @@ ticketing_program = "tDdGYG37gZufntQqs7ZPuiSRyrceNP5ZdygqVQLjUGw"
 url = "https://anchor.projectserum.com"
 
 [provider]
-cluster = "devnet"
+#cluster = "devnet"
+cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 #rpc = "https://tyo74.nodes.rpcpool.com"
 
