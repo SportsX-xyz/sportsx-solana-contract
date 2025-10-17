@@ -9,6 +9,7 @@ import {
 } from "@solana/web3.js";
 import {
     TOKEN_PROGRAM_ID,
+    TOKEN_2022_PROGRAM_ID,
     createMint,
     createAssociatedTokenAccountInstruction,
     createInitializeMintInstruction,
@@ -16,7 +17,6 @@ import {
     mintTo,
     createAccountInstruction,
 } from "@solana/spl-token";
-import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import { assert } from "chai";
 import { TicketingProgram } from "../target/types/ticketing_program";
 
@@ -91,6 +91,15 @@ describe("ticketing-program", () => {
 
         const createTx = new anchor.web3.Transaction().add(createUserATAIx);
         await provider.sendAndConfirm(createTx, []);
+
+        const userATALoaded = await connection.getAccountInfo(userATA);
+
+        if (userATALoaded === null) {
+            throw new Error("FATAL: User ATA account was not found after creation!");
+        }
+        if (userATALoaded.owner.equals(TOKEN_PROGRAM_ID)) {
+            console.log("User ATA successfully created and owned by Token Program.");
+        }
 
         // Mint some USDT to users
         await mintTo(
@@ -321,7 +330,8 @@ describe("ticketing-program", () => {
                         event: eventPDA,
                         platformConfig: platformConfigPDA,
                         systemProgram: SystemProgram.programId,
-                        tokenProgram: TOKEN_PROGRAM_ID,
+                        usdtTokenProgram: TOKEN_PROGRAM_ID,
+                        nftTokenProgram: TOKEN_2022_PROGRAM_ID,
                         associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
                         rent: SYSVAR_RENT_PUBKEY,
                     })
@@ -358,7 +368,8 @@ describe("ticketing-program", () => {
                         event: eventPDA,
                         platformConfig: platformConfigPDA,
                         systemProgram: SystemProgram.programId,
-                        tokenProgram: TOKEN_PROGRAM_ID,
+                        usdtTokenProgram: TOKEN_PROGRAM_ID,
+                        nftTokenProgram: TOKEN_2022_PROGRAM_ID,
                         associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
                         rent: SYSVAR_RENT_PUBKEY,
                     })
@@ -383,7 +394,8 @@ describe("ticketing-program", () => {
                         // ... other accounts
                         platformConfig: platformConfigPDA,
                         systemProgram: SystemProgram.programId,
-                        tokenProgram: TOKEN_PROGRAM_ID,
+                        usdtTokenProgram: TOKEN_PROGRAM_ID,
+                        nftTokenProgram: TOKEN_2022_PROGRAM_ID,
                     })
                     .signers([user, provider.wallet.payer])
                     .rpc();

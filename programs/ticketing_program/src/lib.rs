@@ -1,15 +1,31 @@
 use anchor_lang::prelude::*;
-use anchor_spl::associated_token::AssociatedToken;
-use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer, transfer};
+use anchor_spl::{
+    associated_token::AssociatedToken,
+    // --- 1.SPL Token USDT ---
+    token::{self, Transfer, transfer, ID as TOKEN_PROGRAM_ID},
+    token::Mint as SplMint,
+    token::TokenAccount as SplTokenAccount,
+    token::Token,
+    // --- 2. Token-2022 Token Interface (NFT) ---
+    token_interface::{self, Mint as MintInterface, TokenAccount as TokenAccountInterface, spl_pod::optional_keys::OptionalNonZeroPubkey},
+    token_interface::Token2022, // Token-2022 Program
+};
+
 use spl_token_2022::{
-    extension::{ExtensionType, metadata_pointer::instruction::{initialize as initialize_metadata_pointer}},
-    ID as TOKEN_2022_PROGRAM_ID
+    extension::{
+        ExtensionType,
+        metadata_pointer::instruction::{initialize as initialize_metadata_pointer},
+        // get_full_mint_len Mint
+    },
+    ID as TOKEN_2022_PROGRAM_ID,
 };
 use spl_token_metadata_interface::{
     instruction::{initialize as initialize_metadata, update_field},
     state::Field,
 };
-use solana_program::{program::invoke_signed, pubkey::Pubkey, hash::hash};
+use solana_program::{program::invoke_signed, pubkey::Pubkey};
+// use std::mem::size_of;
+
 
 declare_id!("tDdGYG37gZufntQqs7ZPuiSRyrceNP5ZdygqVQLjUGw");
 
@@ -160,7 +176,7 @@ pub mod ticketing_program {
             to: accounts.platform_usdt_vault.to_account_info(),
             authority: accounts.user.to_account_info(),
         };
-        let cpi_program = accounts.token_program.to_account_info();
+        let cpi_program = accounts.usdt_token_program.to_account_info();
         transfer(
             CpiContext::new(cpi_program.clone(), cpi_accounts_platform),
             PLATFORM_MINT_FEE,
@@ -177,10 +193,10 @@ pub mod ticketing_program {
         )?;
 
         // PHASE II: NFT MINTING
-        token::mint_to(
+        token_interface::mint_to(
             CpiContext::new_with_signer(
                 accounts.token_program.to_account_info(),
-                token::MintTo {
+                token_interface::MintTo {
                     mint: accounts.ticket_mint.to_account_info(),
                     to: accounts.user_nft_ata.to_account_info(),
                     authority: accounts.mint_authority.to_account_info(),
@@ -203,6 +219,7 @@ pub mod ticketing_program {
             &[
                 accounts.ticket_mint.to_account_info(),
                 accounts.mint_authority.to_account_info(),
+                accounts.token_program.to_account_info(),
             ],
             signer_seeds,
         )?;
@@ -219,6 +236,7 @@ pub mod ticketing_program {
             &[
                 accounts.ticket_mint.to_account_info(),
                 accounts.mint_authority.to_account_info(),
+                accounts.token_program.to_account_info(),
             ],
             signer_seeds,
         )?;
@@ -235,6 +253,7 @@ pub mod ticketing_program {
             &[
                 accounts.ticket_mint.to_account_info(),
                 accounts.mint_authority.to_account_info(),
+                accounts.token_program.to_account_info(),
             ],
             signer_seeds,
         )?;
@@ -251,6 +270,31 @@ pub mod ticketing_program {
             &[
                 accounts.ticket_mint.to_account_info(),
                 accounts.mint_authority.to_account_info(),
+                accounts.token_program.to_account_info(),
+            ],
+            signer_seeds,
+        )?;
+
+        //update authority
+        let new_authority = if accounts.event.merchant_key != Pubkey::default() {
+            OptionalNonZeroPubkey::try_from(Some(accounts.event.merchant_key)).unwrap()
+        } else {
+            OptionalNonZeroPubkey::try_from(None).unwrap()
+        };
+
+        let update_authority_ix = spl_token_metadata_interface::instruction::update_authority(
+            &TOKEN_2022_PROGRAM_ID,
+            &accounts.ticket_mint.key(),
+            &accounts.mint_authority.key(),
+            new_authority,
+        );
+
+        invoke_signed(
+            &update_authority_ix,
+            &[
+                accounts.ticket_mint.to_account_info(),
+                accounts.mint_authority.to_account_info(),
+                accounts.token_program.to_account_info(),
             ],
             signer_seeds,
         )?;
@@ -498,40 +542,46 @@ pub struct PurchaseAndMint<'info> {
     pub user: Signer<'info>,
     #[account(mut)]
     pub platform_authority: Signer<'info>,
-    pub usdt_mint: Box<Account<'info, Mint>>,
+
+    pub usdt_mint: Box<Account<'info, SplMint>>,
     #[account(
         mut,
         token::mint = usdt_mint,
-        token::authority = user
+        token::authority = user,
+        token::token_program = usdt_token_program
     )]
-    pub user_usdt_ata: Box<Account<'info, TokenAccount>>,
+    pub user_usdt_ata: Box<Account<'info, SplTokenAccount>>,
     #[account(
         mut,
         token::mint = usdt_mint,
-        token::authority = platform_authority
+        token::authority = platform_authority,
+        token::token_program = usdt_token_program
     )]
-    pub platform_usdt_vault: Box<Account<'info, TokenAccount>>,
+    pub platform_usdt_vault: Box<Account<'info, SplTokenAccount>>,
     #[account(
         mut,
         token::mint = usdt_mint,
-        token::authority = event.merchant_key
+        token::authority = event.merchant_key,
+        token::token_program = usdt_token_program
     )]
-    pub merchant_usdt_vault: Box<Account<'info, TokenAccount>>,
+    pub merchant_usdt_vault: Box<Account<'info, SplTokenAccount>>,
     #[account(
         init,
         payer = user,
         mint::decimals = 0,
         mint::authority = mint_authority,
-        owner = token_program.key()
+        owner = token_program.key(),
+        mint::token_program = token_program
     )]
-    pub ticket_mint: Box<Account<'info, Mint>>,
+    pub ticket_mint: Box<InterfaceAccount<'info, MintInterface>>,
     #[account(
         init_if_needed,
         payer = user,
         associated_token::mint = ticket_mint,
-        associated_token::authority = user
+        associated_token::authority = user,
+        associated_token::token_program = token_program.key(),
     )]
-    pub user_nft_ata: Box<Account<'info, TokenAccount>>,
+    pub user_nft_ata: Box<InterfaceAccount<'info, TokenAccountInterface>>,
     /// CHECK: Validate address by deriving pda
     #[account(seeds = [MINT_AUTH_SEED], bump)]
     pub mint_authority: UncheckedAccount<'info>,
@@ -554,9 +604,14 @@ pub struct PurchaseAndMint<'info> {
         constraint = platform_config.platform_authority == platform_authority.key() @ ErrorCode::InvalidPlatformAuthority
     )]
     pub platform_config: Account<'info, PlatformConfig>,
-    pub system_program: Program<'info, System>,
+
+    #[account(address = TOKEN_PROGRAM_ID)]
+    pub usdt_token_program: Program<'info, Token>,
+
     #[account(address = TOKEN_2022_PROGRAM_ID)]
-    pub token_program: Program<'info, Token>,
+    pub token_program: Program<'info, Token2022>,
+
+    pub system_program: Program<'info, System>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub rent: Sysvar<'info, Rent>,
 }
@@ -567,6 +622,7 @@ pub struct ScanTicket<'info> {
     #[account(mut)]
     pub merchant: Signer<'info>,
     #[account(
+        mut,
         seeds = [TICKET_SEED, ticket_id.as_bytes(), event.key().as_ref()],
         bump = seat_account.bump
     )]
@@ -587,11 +643,12 @@ pub struct UpdateSeatNumber<'info> {
         mut,
         token::token_program = token_program
     )]
-    pub mint: Box<Account<'info, Mint>>,
+    pub mint: Box<InterfaceAccount<'info, MintInterface>>,
     /// CHECK: Validate address by deriving pda
     #[account(seeds = [MINT_AUTH_SEED], bump)]
     pub mint_authority: UncheckedAccount<'info>,
     #[account(
+        mut,
         seeds = [TICKET_SEED, ticket_id.as_bytes(), event.key().as_ref()],
         bump = seat_account.bump
     )]
@@ -602,7 +659,7 @@ pub struct UpdateSeatNumber<'info> {
     )]
     pub event: Account<'info, Events>,
     #[account(address = TOKEN_2022_PROGRAM_ID)]
-    pub token_program: Program<'info, Token>,
+    pub token_program: Program<'info, Token2022>,
 }
 
 #[derive(Accounts)]
@@ -610,7 +667,7 @@ pub struct UpdateSeatNumber<'info> {
 pub struct QueryTicketStatus<'info> {
     #[account(
         seeds = [TICKET_SEED, ticket_id.as_bytes(), event.key().as_ref()],
-        bump
+         bump = seat_account.bump
     )]
     pub seat_account: Account<'info, SeatStatus>,
     #[account(
