@@ -1,8 +1,7 @@
 import * as anchor from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
 
-// USDT Devnet mint
-const USDT_DEVNET_MINT = new PublicKey("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB");
+// const USDT_DEVNET_MINT = new PublicKey("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB");
 
 export async function main() {
     // Setup provider
@@ -34,7 +33,6 @@ export async function main() {
             const config = await program.account.platformConfig.fetch(platformConfigPDA);
             console.log("Existing config:");
             console.log("  Authority:", config.platformAuthority.toString());
-            console.log("  USDT Mint:", config.usdtMint.toString());
         } catch (e) {
             console.log("Could not fetch config:", e);
         }
@@ -47,7 +45,6 @@ export async function main() {
     const tx = await program.methods
         .initializePlatformConfig(
             provider.wallet.publicKey, // platform_authority
-            USDT_DEVNET_MINT          // usdt_mint
         )
         .accounts({
             payer: provider.wallet.publicKey,
@@ -64,7 +61,6 @@ export async function main() {
     const config = await program.account.platformConfig.fetch(platformConfigPDA);
     console.log("Verified:");
     console.log("  Authority:", config.platformAuthority.toString());
-    console.log("  USDT Mint:", config.usdtMint.toString());
 }
 
 anchor.setProvider(anchor.AnchorProvider.env());

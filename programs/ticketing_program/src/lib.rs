@@ -1,31 +1,24 @@
-use anchor_lang::prelude::*;
+use anchor_lang::{ prelude::*, system_program };
 use anchor_spl::{
-    associated_token::AssociatedToken,
-    // --- 1.SPL Token USDT ---
-    token::{self, Transfer, transfer, ID as TOKEN_PROGRAM_ID},
-    token::Mint as SplMint,
-    token::TokenAccount as SplTokenAccount,
-    token::Token,
-    // --- 2. Token-2022 Token Interface (NFT) ---
+    associated_token::{self, AssociatedToken},
+    // --- Token-2022 Token Interface (NFT) ---
     token_interface::{self, Mint as MintInterface, TokenAccount as TokenAccountInterface, spl_pod::optional_keys::OptionalNonZeroPubkey},
     token_interface::Token2022, // Token-2022 Program
+    token_2022,
 };
 
 use spl_token_2022::{
     extension::{
-        ExtensionType,
-        metadata_pointer::instruction::{initialize as initialize_metadata_pointer},
-        // get_full_mint_len Mint
+        ExtensionType, metadata_pointer::instruction::{initialize as initialize_metadata_pointer},
     },
     ID as TOKEN_2022_PROGRAM_ID,
+    state::Mint as StateMint,
 };
 use spl_token_metadata_interface::{
     instruction::{initialize as initialize_metadata, update_field},
     state::Field,
 };
 use solana_program::{program::invoke_signed, pubkey::Pubkey};
-// use std::mem::size_of;
-
 
 declare_id!("tDdGYG37gZufntQqs7ZPuiSRyrceNP5ZdygqVQLjUGw");
 
@@ -34,7 +27,6 @@ const MINT_AUTH_SEED: &[u8] = b"MINT_AUTH";
 const TICKET_SEED: &[u8] = b"TICKET";
 const EVENT_SEED: &[u8] = b"EVENT";
 const PLATFORM_CONFIG_SEED: &[u8] = b"PLATFORM_CONFIG";
-const PLATFORM_MINT_FEE: u64 = 100000; // $0.10 USDT (6 decimals)
 const MAX_TICKET_ID_LENGTH: usize = 32;
 const MAX_EVENT_ID_LENGTH: usize = 32;
 const MAX_URI_LENGTH: usize = 200;
@@ -50,19 +42,16 @@ pub mod ticketing_program {
     pub fn initialize_platform_config(
         ctx: Context<InitializePlatformConfig>,
         platform_authority: Pubkey,
-        usdt_mint: Pubkey,
     ) -> Result<()> {
         let config = &mut ctx.accounts.platform_config;
         if ctx.accounts.payer.key() != ctx.accounts.admin.key() {
             return Err(ErrorCode::UnauthorizedAdmin.into());
         }
         config.platform_authority = platform_authority;
-        config.usdt_mint = usdt_mint;
         config.bump = ctx.bumps.platform_config;
 
         emit!(PlatformConfigInitialized {
             platform_authority,
-            usdt_mint,
             timestamp: Clock::get()?.unix_timestamp,
         });
 
@@ -121,10 +110,9 @@ pub mod ticketing_program {
         Ok(())
     }
 
-    /// Purchase and mint a ticket NFT
-    pub fn purchase_and_mint(
-        ctx: Context<PurchaseAndMint>,
-        ticket_price_usdt: u64,
+    /// mint a ticket NFT
+    pub fn mint_ticket(
+        ctx: Context<MintTicket>,
         ticket_id: String,
         event_id: String,
         seat_number: String,
@@ -141,12 +129,9 @@ pub mod ticketing_program {
         if seat_number.len() > MAX_SEAT_NUMBER_LENGTH {
             return Err(ErrorCode::SeatNumberTooLong.into());
         }
-        if accounts.usdt_mint.key() != accounts.platform_config.usdt_mint {
-            return Err(ErrorCode::InvalidUsdtMint.into());
-        }
-        if accounts.ticket_mint.decimals != 0 || accounts.ticket_mint.supply != 0 {
-            return Err(ErrorCode::MintNotInitialized.into());
-        }
+        // if accounts.ticket_mint.decimals != 0 || accounts.ticket_mint.supply != 0 {
+        //     return Err(ErrorCode::MintNotInitialized.into());
+        // }
         if accounts.seat_account.is_minted {
             return Err(ErrorCode::TicketAlreadyMinted.into());
         }
@@ -156,43 +141,109 @@ pub mod ticketing_program {
         if accounts.platform_config.platform_authority != accounts.platform_authority.key() {
             return Err(ErrorCode::InvalidPlatformAuthority.into());
         }
-        if accounts.merchant_usdt_vault.owner != accounts.event.merchant_key {
-            return Err(ErrorCode::InvalidMerchantAuthority.into());
-        }
-
-        // Calculate merchant revenue
-        let merchant_revenue = ticket_price_usdt
-            .checked_sub(PLATFORM_MINT_FEE)
-            .ok_or(ErrorCode::InsufficientFunds)?;
 
         // Get PDA bump for mint authority
         let bump = ctx.bumps.mint_authority;
         let auth_seeds = &[MINT_AUTH_SEED, &[bump]];
         let signer_seeds = &[&auth_seeds[..]];
 
-        // PHASE I: USDT PAYMENT
-        let cpi_accounts_platform = Transfer {
-            from: accounts.user_usdt_ata.to_account_info(),
-            to: accounts.platform_usdt_vault.to_account_info(),
-            authority: accounts.user.to_account_info(),
+        let space = match
+        ExtensionType::try_calculate_account_len::<StateMint>(&[ExtensionType::MetadataPointer])
+        {
+            Ok(space) => space,
+            Err(_) => {
+                return Err(ErrorCode::InvalidMintAccountSpace.into());
+            }
         };
-        let cpi_program = accounts.usdt_token_program.to_account_info();
-        transfer(
-            CpiContext::new(cpi_program.clone(), cpi_accounts_platform),
-            PLATFORM_MINT_FEE,
+
+        // This is the space required for the metadata account.
+        // We put the meta data into the mint account at the end so we
+        // don't need to create and additional account.
+        let meta_data_space = 250;
+
+        let lamports_required = Rent::get()?.minimum_balance(space + meta_data_space);
+
+        msg!(
+            "Create Mint and metadata account size and cost: {} lamports: {}",
+            space as u64,
+            lamports_required
+        );
+
+        //
+        system_program::create_account(
+            CpiContext::new(
+                accounts.token_program.to_account_info(),
+                system_program::CreateAccount {
+                    from: accounts.user.to_account_info(),
+                    to: accounts.ticket_mint.to_account_info(),
+                }
+            ),
+            lamports_required,
+            space as u64,
+            &TOKEN_2022_PROGRAM_ID
+        )?;
+        msg!("3333333333");
+
+
+        // Assign the mint to the token program
+        system_program::assign(
+            CpiContext::new(accounts.token_program.to_account_info(), system_program::Assign {
+                account_to_assign: accounts.ticket_mint.to_account_info(),
+            }),
+            &TOKEN_2022_PROGRAM_ID
         )?;
 
-        let cpi_accounts_merchant = Transfer {
-            from: accounts.user_usdt_ata.to_account_info(),
-            to: accounts.merchant_usdt_vault.to_account_info(),
-            authority: accounts.user.to_account_info(),
-        };
-        transfer(
-            CpiContext::new(cpi_program, cpi_accounts_merchant),
-            merchant_revenue,
+        let initialize_pointer_ix = initialize_metadata_pointer(
+            &TOKEN_2022_PROGRAM_ID,
+            &accounts.ticket_mint.key(),
+            Some(accounts.mint_authority.key()), // authority
+            Some(accounts.ticket_mint.key()), // metadata_address
         )?;
 
-        // PHASE II: NFT MINTING
+        invoke_signed(
+            &initialize_pointer_ix,
+            &[
+                accounts.ticket_mint.to_account_info(),
+                accounts.mint_authority.to_account_info(),
+                accounts.token_program.to_account_info(),
+            ],
+            signer_seeds,
+        )?;
+
+        // Initialize the mint cpi
+        let mint_cpi_ix = CpiContext::new(
+            accounts.token_program.to_account_info(),
+            token_2022::InitializeMint2 {
+                mint: accounts.ticket_mint.to_account_info(),
+            }
+        );
+
+        token_2022::initialize_mint2(mint_cpi_ix, 0, &accounts.mint_authority.key(), None).unwrap();
+
+        // init metadata
+        let initialize_metadata_ix = initialize_metadata(
+            &TOKEN_2022_PROGRAM_ID,
+            &accounts.ticket_mint.key(),
+            &accounts.mint_authority.key(),
+            &accounts.mint_authority.key(),
+            &accounts.mint_authority.key(),
+            accounts.event.name.clone(),
+            accounts.event.symbol.clone(),
+            accounts.event.uri.clone(),
+        );
+
+        invoke_signed(
+            &initialize_metadata_ix,
+            &[
+                accounts.ticket_mint.to_account_info(),
+                accounts.mint_authority.to_account_info(),
+                accounts.token_program.to_account_info(),
+            ],
+            signer_seeds,
+        )?;
+
+
+        // NFT MINTING
         token_interface::mint_to(
             CpiContext::new_with_signer(
                 accounts.token_program.to_account_info(),
@@ -275,7 +326,7 @@ pub mod ticketing_program {
             signer_seeds,
         )?;
 
-        //update authority
+        // Update authority to merchant
         let new_authority = if accounts.event.merchant_key != Pubkey::default() {
             OptionalNonZeroPubkey::try_from(Some(accounts.event.merchant_key)).unwrap()
         } else {
@@ -297,6 +348,35 @@ pub mod ticketing_program {
                 accounts.token_program.to_account_info(),
             ],
             signer_seeds,
+        )?;
+
+        // Create the associated token account
+        associated_token::create(
+            CpiContext::new(
+                accounts.associated_token_program.to_account_info(),
+                associated_token::Create {
+                    payer: accounts.user.to_account_info(),
+                    associated_token: accounts.user_nft_ata.to_account_info(),
+                    authority: accounts.user.to_account_info(),
+                    mint: accounts.ticket_mint.to_account_info(),
+                    system_program: accounts.system_program.to_account_info(),
+                    token_program: accounts.token_program.to_account_info(),
+                }
+            )
+        )?;
+
+        // Mint one token to the associated token account of the player
+        token_2022::mint_to(
+            CpiContext::new_with_signer(
+                accounts.token_program.to_account_info(),
+                token_2022::MintTo {
+                    mint: accounts.ticket_mint.to_account_info(),
+                    to: accounts.user_nft_ata.to_account_info(),
+                    authority: accounts.mint_authority.to_account_info(),
+                },
+                signer_seeds
+            ),
+            1
         )?;
 
         // Close mint authority
@@ -328,7 +408,6 @@ pub mod ticketing_program {
             mint: accounts.ticket_mint.key(),
             ticket_id: ticket_id.clone(),
             event_id: event_id.clone(),
-            ticket_price: ticket_price_usdt,
             merchant: accounts.event.merchant_key,
             seat_number: seat_number.clone(),
             name: accounts.event.name.clone(),
@@ -338,8 +417,8 @@ pub mod ticketing_program {
         });
 
         msg!("NFT Minted successfully for {}", accounts.user.key());
-        msg!("Ticket ID: {}, Event ID: {}, Seat: {}, Name: {}, Symbol: {}, URI: {}, Price: {}, Merchant: {}, Revenue: {}", 
-             ticket_id, event_id, seat_number, accounts.event.name, accounts.event.symbol, accounts.event.uri, ticket_price_usdt, accounts.event.merchant_key, merchant_revenue);
+        msg!("Ticket ID: {}, Event ID: {}, Seat: {}, Name: {}, Symbol: {}, URI: {}, Merchant: {}",
+             ticket_id, event_id, seat_number, accounts.event.name, accounts.event.symbol, accounts.event.uri, accounts.event.merchant_key);
 
         Ok(())
     }
@@ -385,7 +464,7 @@ pub mod ticketing_program {
             timestamp: Clock::get()?.unix_timestamp,
         });
 
-        msg!("Ticket ID: {}, Event ID: {}, Scanned by: {}", 
+        msg!("Ticket ID: {}, Event ID: {}, Scanned by: {}",
              ticket_id, event_id, accounts.merchant.key());
 
         Ok(())
@@ -416,9 +495,6 @@ pub mod ticketing_program {
         if accounts.merchant.key() != accounts.event.merchant_key {
             return Err(ErrorCode::InvalidMerchantAuthority.into());
         }
-        // if accounts.mint.key() != accounts.event.mint {
-        //     return Err(ErrorCode::InvalidMint.into());
-        // }
         if !accounts.seat_account.is_minted {
             return Err(ErrorCode::TicketNotMinted.into());
         }
@@ -452,43 +528,8 @@ pub mod ticketing_program {
             timestamp: Clock::get()?.unix_timestamp,
         });
 
-        msg!("Ticket ID: {}, Event ID: {}, New Seat: {}, Updated by: {}", 
+        msg!("Ticket ID: {}, Event ID: {}, New Seat: {}, Updated by: {}",
              ticket_id, event_id, new_seat_number, accounts.merchant.key());
-
-        Ok(())
-    }
-
-    /// Query ticket status
-    pub fn query_ticket_status(
-        ctx: Context<QueryTicketStatus>,
-        ticket_id: String,
-        event_id: String,
-    ) -> Result<()> {
-        let accounts = ctx.accounts;
-
-        // Validate inputs
-        if ticket_id.len() > MAX_TICKET_ID_LENGTH {
-            return Err(ErrorCode::TicketIdTooLong.into());
-        }
-        if event_id.len() > MAX_EVENT_ID_LENGTH {
-            return Err(ErrorCode::EventIdTooLong.into());
-        }
-        if accounts.event.event_id != event_id {
-            return Err(ErrorCode::InvalidEventId.into());
-        }
-
-        // Emit event with ticket status
-        emit!(TicketStatusQueried {
-            ticket_id: ticket_id.clone(),
-            event_id: event_id.clone(),
-            uri: accounts.event.uri.clone(),
-            is_minted: accounts.seat_account.is_minted,
-            is_scanned: accounts.seat_account.is_scanned,
-            timestamp: Clock::get()?.unix_timestamp,
-        });
-
-        msg!("Ticket ID: {}, Event ID: {}, URI: {}, Is Minted: {}, Is Scanned: {}", 
-             ticket_id, event_id, accounts.event.uri, accounts.seat_account.is_minted, accounts.seat_account.is_scanned);
 
         Ok(())
     }
@@ -536,52 +577,27 @@ pub struct CreateEvent<'info> {
 }
 
 #[derive(Accounts)]
-#[instruction(ticket_price_usdt: u64, ticket_id: String, event_id: String, seat_number: String)]
-pub struct PurchaseAndMint<'info> {
+#[instruction(ticket_id: String, event_id: String, seat_number: String)]
+pub struct MintTicket<'info> {
     #[account(mut)]
     pub user: Signer<'info>,
     #[account(mut)]
     pub platform_authority: Signer<'info>,
 
-    pub usdt_mint: Box<Account<'info, SplMint>>,
     #[account(
-        mut,
-        token::mint = usdt_mint,
-        token::authority = user,
-        token::token_program = usdt_token_program
+        mut
     )]
-    pub user_usdt_ata: Box<Account<'info, SplTokenAccount>>,
-    #[account(
-        mut,
-        token::mint = usdt_mint,
-        token::authority = platform_authority,
-        token::token_program = usdt_token_program
-    )]
-    pub platform_usdt_vault: Box<Account<'info, SplTokenAccount>>,
-    #[account(
-        mut,
-        token::mint = usdt_mint,
-        token::authority = event.merchant_key,
-        token::token_program = usdt_token_program
-    )]
-    pub merchant_usdt_vault: Box<Account<'info, SplTokenAccount>>,
-    #[account(
-        init,
-        payer = user,
-        mint::decimals = 0,
-        mint::authority = mint_authority,
-        owner = token_program.key(),
-        mint::token_program = token_program
-    )]
-    pub ticket_mint: Box<InterfaceAccount<'info, MintInterface>>,
-    #[account(
-        init_if_needed,
-        payer = user,
-        associated_token::mint = ticket_mint,
-        associated_token::authority = user,
-        associated_token::token_program = token_program.key(),
-    )]
-    pub user_nft_ata: Box<InterfaceAccount<'info, TokenAccountInterface>>,
+    /// CHECK
+    // pub ticket_mint: Box<InterfaceAccount<'info, MintInterface>>,
+    pub ticket_mint: UncheckedAccount<'info>,
+    // #[account(
+    //     init_if_needed,
+    //     payer = user,
+    //     associated_token::mint = ticket_mint,
+    //     associated_token::authority = user
+    // )]
+    /// CHECK
+    pub user_nft_ata: UncheckedAccount<'info>,
     /// CHECK: Validate address by deriving pda
     #[account(seeds = [MINT_AUTH_SEED], bump)]
     pub mint_authority: UncheckedAccount<'info>,
@@ -604,9 +620,6 @@ pub struct PurchaseAndMint<'info> {
         constraint = platform_config.platform_authority == platform_authority.key() @ ErrorCode::InvalidPlatformAuthority
     )]
     pub platform_config: Account<'info, PlatformConfig>,
-
-    #[account(address = TOKEN_PROGRAM_ID)]
-    pub usdt_token_program: Program<'info, Token>,
 
     #[account(address = TOKEN_2022_PROGRAM_ID)]
     pub token_program: Program<'info, Token2022>,
@@ -662,31 +675,15 @@ pub struct UpdateSeatNumber<'info> {
     pub token_program: Program<'info, Token2022>,
 }
 
-#[derive(Accounts)]
-#[instruction(ticket_id: String, event_id: String)]
-pub struct QueryTicketStatus<'info> {
-    #[account(
-        seeds = [TICKET_SEED, ticket_id.as_bytes(), event.key().as_ref()],
-         bump = seat_account.bump
-    )]
-    pub seat_account: Account<'info, SeatStatus>,
-    #[account(
-        seeds = [EVENT_SEED, event_id.as_bytes()],
-        bump = event.bump
-    )]
-    pub event: Account<'info, Events>,
-}
-
 // DATA STRUCTURES
 #[account]
 pub struct PlatformConfig {
     pub platform_authority: Pubkey,
-    pub usdt_mint: Pubkey,
     pub bump: u8,
 }
 
 impl PlatformConfig {
-    pub const LEN: usize = 32 + 32 + 1; // Pubkey (32) + Pubkey (32) + u8 (1)
+    pub const LEN: usize = 32 + 1; // Pubkey (32) + u8 (1)
 }
 
 #[account]
@@ -719,7 +716,6 @@ impl SeatStatus {
 #[event]
 pub struct PlatformConfigInitialized {
     pub platform_authority: Pubkey,
-    pub usdt_mint: Pubkey,
     pub timestamp: i64,
 }
 
@@ -740,7 +736,6 @@ pub struct TicketMinted {
     pub mint: Pubkey,
     pub ticket_id: String,
     pub event_id: String,
-    pub ticket_price: u64,
     pub merchant: Pubkey,
     pub seat_number: String,
     pub name: String,
@@ -766,21 +761,10 @@ pub struct SeatNumberUpdated {
     pub timestamp: i64,
 }
 
-#[event]
-pub struct TicketStatusQueried {
-    pub ticket_id: String,
-    pub event_id: String,
-    pub uri: String,
-    pub is_minted: bool,
-    pub is_scanned: bool,
-    pub timestamp: i64,
-}
 
 // ERROR CODES
 #[error_code]
 pub enum ErrorCode {
-    #[msg("Insufficient funds for ticket purchase")]
-    InsufficientFunds,
     #[msg("Ticket ID exceeds maximum length")]
     TicketIdTooLong,
     #[msg("Event ID exceeds maximum length")]
@@ -793,8 +777,6 @@ pub enum ErrorCode {
     SymbolTooLong,
     #[msg("Mint account not properly initialized")]
     MintNotInitialized,
-    #[msg("Invalid USDT mint provided")]
-    InvalidUsdtMint,
     #[msg("Invalid URI format or length")]
     InvalidUri,
     #[msg("Token-2022 extension initialization failed")]
@@ -819,4 +801,6 @@ pub enum ErrorCode {
     InvalidExpiryTimestamp,
     #[msg("Invalid mint account")]
     InvalidMint,
+    #[msg("Invalid Mint account space")]
+    InvalidMintAccountSpace,
 }
