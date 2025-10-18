@@ -56,11 +56,9 @@ pub mod sportsx_checkin {
             authority: ctx.accounts.checkin_authority.to_account_info(),
         };
 
-        // Create seeds for PDA signing
-        let wallet_key = ctx.accounts.wallet.key();
+        // Create seeds for PDA signing (unified authority)
         let seeds = &[
-            b"checkin_authority",
-            wallet_key.as_ref(),
+            b"checkin_authority".as_ref(),
             &[ctx.bumps.checkin_authority],
         ];
         let signer_seeds = &[&seeds[..]];
@@ -128,10 +126,10 @@ pub struct DailyCheckin<'info> {
     /// The wallet performing check-in
     pub wallet: Signer<'info>,
     
-    /// PDA authority for this check-in contract to call PoF
+    /// Unified PDA authority for check-in contract to call PoF
     /// CHECK: PDA used for signing CPI calls
     #[account(
-        seeds = [b"checkin_authority", wallet.key().as_ref()],
+        seeds = [b"checkin_authority"],
         bump
     )]
     pub checkin_authority: AccountInfo<'info>,
