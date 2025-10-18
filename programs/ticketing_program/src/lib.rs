@@ -18,7 +18,7 @@ use spl_token_metadata_interface::{
     instruction::{initialize as initialize_metadata, update_field},
     state::Field,
 };
-use solana_program::{program::invoke_signed, pubkey::Pubkey};
+use solana_program::{program::{invoke, invoke_signed}, pubkey::Pubkey};
 
 declare_id!("tDdGYG37gZufntQqs7ZPuiSRyrceNP5ZdygqVQLjUGw");
 
@@ -180,9 +180,8 @@ pub mod ticketing_program {
             ),
             lamports_required,
             space as u64,
-            &TOKEN_2022_PROGRAM_ID
+            &accounts.token_program.key()
         )?;
-        msg!("3333333333");
 
 
         // Assign the mint to the token program
@@ -193,39 +192,41 @@ pub mod ticketing_program {
             &TOKEN_2022_PROGRAM_ID
         )?;
 
-        let initialize_pointer_ix = initialize_metadata_pointer(
+        // Initialize the metadata pointer (Need to do this before initializing the mint)
+        let initialize_pointer_ix = spl_token_2022::extension::metadata_pointer::instruction::initialize(
             &TOKEN_2022_PROGRAM_ID,
             &accounts.ticket_mint.key(),
             Some(accounts.mint_authority.key()), // authority
             Some(accounts.ticket_mint.key()), // metadata_address
         )?;
 
-        invoke_signed(
+        invoke(
             &initialize_pointer_ix,
             &[
                 accounts.ticket_mint.to_account_info(),
-                accounts.mint_authority.to_account_info(),
-                accounts.token_program.to_account_info(),
-            ],
-            signer_seeds,
+                accounts.mint_authority.to_account_info()
+            ]
         )?;
 
         // Initialize the mint cpi
-        let mint_cpi_ix = CpiContext::new(
-            accounts.token_program.to_account_info(),
-            token_2022::InitializeMint2 {
-                mint: accounts.ticket_mint.to_account_info(),
-            }
-        );
-
-        token_2022::initialize_mint2(mint_cpi_ix, 0, &accounts.mint_authority.key(), None).unwrap();
+        token_2022::initialize_mint2(
+            CpiContext::new(
+                accounts.token_program.to_account_info(),
+                token_2022::InitializeMint2 {
+                    mint: accounts.ticket_mint.to_account_info(),
+                }
+            ),
+            0,                                      // decimals
+            &accounts.mint_authority.key(),         // mint_authority
+            None                                    // freeze_authority
+        ).unwrap();
 
         // init metadata
         let initialize_metadata_ix = initialize_metadata(
             &TOKEN_2022_PROGRAM_ID,
             &accounts.ticket_mint.key(),
             &accounts.mint_authority.key(),
-            &accounts.mint_authority.key(),
+            &accounts.ticket_mint.key(),
             &accounts.mint_authority.key(),
             accounts.event.name.clone(),
             accounts.event.symbol.clone(),
@@ -244,10 +245,10 @@ pub mod ticketing_program {
 
 
         // NFT MINTING
-        token_interface::mint_to(
+        token_2022::mint_to(
             CpiContext::new_with_signer(
                 accounts.token_program.to_account_info(),
-                token_interface::MintTo {
+                token_2022::MintTo {
                     mint: accounts.ticket_mint.to_account_info(),
                     to: accounts.user_nft_ata.to_account_info(),
                     authority: accounts.mint_authority.to_account_info(),
@@ -584,12 +585,9 @@ pub struct MintTicket<'info> {
     #[account(mut)]
     pub platform_authority: Signer<'info>,
 
-    #[account(
-        mut
-    )]
     /// CHECK
-    // pub ticket_mint: Box<InterfaceAccount<'info, MintInterface>>,
-    pub ticket_mint: UncheckedAccount<'info>,
+    #[account(mut)]
+    pub ticket_mint: Signer<'info>,
     // #[account(
     //     init_if_needed,
     //     payer = user,
@@ -597,7 +595,8 @@ pub struct MintTicket<'info> {
     //     associated_token::authority = user
     // )]
     /// CHECK
-    pub user_nft_ata: UncheckedAccount<'info>,
+    #[account(mut)]
+    pub user_nft_ata: AccountInfo<'info>,
     /// CHECK: Validate address by deriving pda
     #[account(seeds = [MINT_AUTH_SEED], bump)]
     pub mint_authority: UncheckedAccount<'info>,

@@ -8,8 +8,10 @@ import {
     LAMPORTS_PER_SOL,
 } from "@solana/web3.js";
 import {
+    ASSOCIATED_TOKEN_PROGRAM_ID,
     TOKEN_2022_PROGRAM_ID,
     getAssociatedTokenAddress,
+    getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
 import { assert } from "chai";
 import { TicketingProgram } from "../target/types/ticketing_program";
@@ -248,8 +250,11 @@ describe("ticketing-program", () => {
                 ticketMint.publicKey,
                 user.publicKey,
                 false,
-                TOKEN_2022_PROGRAM_ID
+                TOKEN_2022_PROGRAM_ID,
+                ASSOCIATED_TOKEN_PROGRAM_ID
             );
+
+            console.log("userNftAta (Wallet):", userNftAta.toBase58());
         });
 
         it("Mints ticket NFT successfully", async () => {
@@ -274,7 +279,7 @@ describe("ticketing-program", () => {
                     associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
                     rent: SYSVAR_RENT_PUBKEY,
                 })
-                .signers([user, provider.wallet.payer])
+                .signers([user, provider.wallet.payer, ticketMint])
                 .rpc();
 
             console.log("✅ Ticket minted successfully:", tx);
