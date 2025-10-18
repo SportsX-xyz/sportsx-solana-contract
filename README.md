@@ -27,6 +27,13 @@ The contract uses Anchor framework and implements the following core functionali
 5. `authorize_contract`: Admin authorizes a contract to update points
 6. `revoke_contract`: Admin revokes a contract's authorization
 
+## Documentation
+
+For detailed guides and examples, see the `.docs/` directory:
+- **QUICKSTART.md** - Quick start guide (Chinese)
+- **USAGE_GUIDE.md** - Comprehensive usage guide with examples
+- **PROJECT_STRUCTURE.md** - Detailed project structure documentation
+
 ## Prerequisites
 
 - [Rust](https://www.rust-lang.org/tools/install)
