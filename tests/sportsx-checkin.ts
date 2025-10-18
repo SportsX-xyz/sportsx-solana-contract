@@ -24,9 +24,8 @@ describe("sportsx-checkin", () => {
 
   // PDAs for Check-in
   let user1CheckinPda: PublicKey;
-  let user1CheckinAuthorityPda: PublicKey;
   let user2CheckinPda: PublicKey;
-  let user2CheckinAuthorityPda: PublicKey;
+  let checkinAuthorityPda: PublicKey; // Unified authority for all users
 
   before(async () => {
     // Derive PoF PDAs
@@ -51,18 +50,14 @@ describe("sportsx-checkin", () => {
       checkinProgram.programId
     );
 
-    [user1CheckinAuthorityPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("checkin_authority"), user1.publicKey.toBuffer()],
-      checkinProgram.programId
-    );
-
     [user2CheckinPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("checkin_record"), user2.publicKey.toBuffer()],
       checkinProgram.programId
     );
 
-    [user2CheckinAuthorityPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("checkin_authority"), user2.publicKey.toBuffer()],
+    // Unified authority for all check-ins
+    [checkinAuthorityPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("checkin_authority")],
       checkinProgram.programId
     );
 
@@ -93,15 +88,7 @@ describe("sportsx-checkin", () => {
 
     it("Authorizes check-in contract in PoF", async () => {
       await pofProgram.methods
-        .authorizeContract(user1CheckinAuthorityPda)
-        .accounts({
-          globalState: globalStatePda,
-          admin: admin.publicKey,
-        })
-        .rpc();
-
-      await pofProgram.methods
-        .authorizeContract(user2CheckinAuthorityPda)
+        .authorizeContract(checkinAuthorityPda)
         .accounts({
           globalState: globalStatePda,
           admin: admin.publicKey,
@@ -109,7 +96,13 @@ describe("sportsx-checkin", () => {
         .rpc();
 
       const globalState = await pofProgram.account.globalState.fetch(globalStatePda);
-      expect(globalState.authorizedContracts).to.have.lengthOf(2);
+      expect(globalState.authorizedContracts.length).to.be.greaterThan(0);
+      
+      // Verify the checkin authority is in the list
+      const isAuthorized = globalState.authorizedContracts.some(
+        c => c.toString() === checkinAuthorityPda.toString()
+      );
+      expect(isAuthorized).to.be.true;
     });
 
     it("Initializes user1 PoF points", async () => {
@@ -170,7 +163,7 @@ describe("sportsx-checkin", () => {
         .accounts({
           checkinRecord: user1CheckinPda,
           wallet: user1.publicKey,
-          checkinAuthority: user1CheckinAuthorityPda,
+          checkinAuthority: checkinAuthorityPda,
           walletPoints: user1PointsPda,
           globalState: globalStatePda,
           pofProgram: pofProgram.programId,
@@ -196,7 +189,7 @@ describe("sportsx-checkin", () => {
           .accounts({
             checkinRecord: user1CheckinPda,
             wallet: user1.publicKey,
-            checkinAuthority: user1CheckinAuthorityPda,
+            checkinAuthority: checkinAuthorityPda,
             walletPoints: user1PointsPda,
             globalState: globalStatePda,
             pofProgram: pofProgram.programId,
@@ -243,7 +236,7 @@ describe("sportsx-checkin", () => {
         .accounts({
           checkinRecord: user2CheckinPda,
           wallet: user2.publicKey,
-          checkinAuthority: user2CheckinAuthorityPda,
+          checkinAuthority: checkinAuthorityPda,
           walletPoints: user2PointsPda,
           globalState: globalStatePda,
           pofProgram: pofProgram.programId,
