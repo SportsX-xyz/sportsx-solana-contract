@@ -6,9 +6,11 @@ skip-lint = false
 
 [programs.localnet]
 sportsx_pof = "E5Arj2VAzHNHwWgFQgb6nHfp1WQA5ShEpdbjYmknpafV"
+sportsx_checkin = "2ZH4YcsqZTSKY1iAMwPMZUN6rSvTBhSCvso9pUWD9eXX"
 
 [programs.devnet]
 sportsx_pof = "E5Arj2VAzHNHwWgFQgb6nHfp1WQA5ShEpdbjYmknpafV"
+sportsx_checkin = "2ZH4YcsqZTSKY1iAMwPMZUN6rSvTBhSCvso9pUWD9eXX"
 
 [registry]
 url = "https://api.apr.dev"

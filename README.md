@@ -1,31 +1,57 @@
-# SportsX Proof of Fandom (PoF) Smart Contract
+# SportsX Smart Contracts
 
-A Solana smart contract for tracking and managing user engagement points (Proof of Fandom) in the SportsX ecosystem.
+Solana smart contracts for the SportsX ecosystem, featuring a Proof of Fandom (PoF) points system and daily check-in rewards.
 
-## Features
+## Contracts
 
-1. **Wallet Point Tracking**: Each wallet has a dedicated point account to track their engagement score
-2. **Flexible Point Updates**: Admin and authorized contracts can increase or decrease wallet points
-3. **Point Queries**: Anyone can query the current points for any wallet
-4. **Contract Authorization**: Admin can authorize/revoke other smart contracts to update points
+### 1. SportsX PoF (Proof of Fandom)
+Core points management system.
+
+**Features**:
+- Wallet point tracking with dedicated PDA accounts
+- Flexible point updates by admin or authorized contracts  
+- Public point queries
+- Contract authorization system (max 10 authorized contracts)
+
+**Program ID**: `E5Arj2VAzHNHwWgFQgb6nHfp1WQA5ShEpdbjYmknpafV`
+
+### 2. SportsX Check-in
+Daily check-in system that rewards users with PoF points via Cross-Program Invocation (CPI).
+
+**Features**:
+- 24-hour check-in interval enforcement
+- Timestamp tracking for each wallet
+- Automatic 10-point reward per check-in (via CPI to PoF contract)
+- Check-in history and status queries
+
+**Program ID**: `2ZH4YcsqZTSKY1iAMwPMZUN6rSvTBhSCvso9pUWD9eXX`
 
 ## Architecture
 
-The contract uses Anchor framework and implements the following core functionalities:
+Built with Anchor framework on Solana.
 
-### Accounts
+### PoF Contract
 
-- **GlobalState**: Stores admin pubkey and list of authorized contracts (max 10)
-- **WalletPoints**: PDA for each wallet storing their point balance
+**Accounts**:
+- `GlobalState`: Admin pubkey + authorized contracts list (max 10)
+- `WalletPoints`: Per-wallet PDA storing point balance
 
-### Instructions
+**Instructions**:
+- `initialize`: Setup global state with admin
+- `initialize_wallet`: Create point account (starts at 0)
+- `update_points`: Modify points (admin/authorized only)
+- `get_points`: Query wallet points
+- `authorize_contract` / `revoke_contract`: Manage authorized contracts
 
-1. `initialize`: Initialize the global state with admin authority
-2. `initialize_wallet`: Create a point account for a wallet (starts at 0)
-3. `update_points`: Update wallet points (admin or authorized contract only)
-4. `get_points`: Query current points for a wallet
-5. `authorize_contract`: Admin authorizes a contract to update points
-6. `revoke_contract`: Admin revokes a contract's authorization
+### Check-in Contract
+
+**Accounts**:
+- `CheckinRecord`: Per-wallet PDA tracking last check-in time and total count
+
+**Instructions**:
+- `initialize_checkin`: Create check-in record for wallet
+- `daily_checkin`: Perform check-in (24hr cooldown) and receive 10 PoF points via CPI
+- `get_checkin_info`: Query check-in status and next available time
 
 ## Documentation
 
