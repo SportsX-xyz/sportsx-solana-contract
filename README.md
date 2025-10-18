@@ -55,8 +55,12 @@ Built with Anchor framework on Solana.
 
 ## Documentation
 
-For detailed guides and examples, see the `.docs/` directory:
-- **QUICKSTART.md** - Quick start guide (Chinese)
+### Quick Start
+- **FRONTEND_INTEGRATION.md** - Complete frontend integration guide with React examples
+
+### Detailed Guides
+For comprehensive guides, see the `.docs/` directory:
+- **QUICKSTART.md** - Quick start guide (Chinese) with test steps
 - **USAGE_GUIDE.md** - Comprehensive usage guide with examples
 - **PROJECT_STRUCTURE.md** - Detailed project structure documentation
 
