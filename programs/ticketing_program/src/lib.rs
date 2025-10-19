@@ -193,7 +193,7 @@ pub mod ticketing_program {
         )?;
 
         // Initialize the metadata pointer (Need to do this before initializing the mint)
-        let initialize_pointer_ix = spl_token_2022::extension::metadata_pointer::instruction::initialize(
+        let initialize_pointer_ix = initialize_metadata_pointer(
             &TOKEN_2022_PROGRAM_ID,
             &accounts.ticket_mint.key(),
             Some(accounts.mint_authority.key()), // authority
@@ -245,18 +245,18 @@ pub mod ticketing_program {
 
 
         // NFT MINTING
-        token_2022::mint_to(
-            CpiContext::new_with_signer(
-                accounts.token_program.to_account_info(),
-                token_2022::MintTo {
-                    mint: accounts.ticket_mint.to_account_info(),
-                    to: accounts.user_nft_ata.to_account_info(),
-                    authority: accounts.mint_authority.to_account_info(),
-                },
-                signer_seeds,
-            ),
-            1,
-        )?;
+        // token_2022::mint_to(
+        //     CpiContext::new_with_signer(
+        //         accounts.token_program.to_account_info(),
+        //         token_2022::MintTo {
+        //             mint: accounts.ticket_mint.to_account_info(),
+        //             to: accounts.user_nft_ata.to_account_info(),
+        //             authority: accounts.mint_authority.to_account_info(),
+        //         },
+        //         signer_seeds,
+        //     ),
+        //     1,
+        // )?;
 
         // Update ticket metadata (name, symbol, uri, seat_number)
         let update_name_ix = update_field(

@@ -193,6 +193,7 @@ describe("ticketing-program", () => {
         });
 
         it("Fails to create event with invalid platform authority", async () => {
+            const fakeAdmin = Keypair.generate();
             try {
                 await program.methods
                     .createEvent(
@@ -320,7 +321,7 @@ describe("ticketing-program", () => {
                         associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
                         rent: SYSVAR_RENT_PUBKEY,
                     })
-                    .signers([user, newTicketMint])
+                    .signers([user, provider.wallet.payer, newTicketMint])
                     .rpc();
                 assert.fail("Should fail with already minted ticket");
             } catch (error: any) {
