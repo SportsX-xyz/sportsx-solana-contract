@@ -401,6 +401,7 @@ pub mod ticketing_program {
 
         // Mark ticket as minted
         accounts.seat_account.is_minted = true;
+        accounts.seat_account.mint_key = accounts.ticket_mint.key();
         accounts.seat_account.bump = ctx.bumps.seat_account;
 
         // Emit event
@@ -457,6 +458,23 @@ pub mod ticketing_program {
 
         // Mark ticket as scanned
         accounts.seat_account.is_scanned = true;
+
+        let update_scanned_ix = update_field(
+            &TOKEN_2022_PROGRAM_ID,
+            &accounts.ticket_mint.key(),
+            &accounts.merchant.key(),
+            Field::Key("is_scanned".to_string()),
+            "true".to_string(),
+        );
+        invoke(
+            &update_scanned_ix,
+            &[
+                accounts.ticket_mint.to_account_info(),
+                accounts.merchant.to_account_info(),
+                accounts.token_program.to_account_info(),
+            ],
+        )?;
+
 
         emit!(TicketScanned {
             ticket_id: ticket_id.clone(),
@@ -644,6 +662,13 @@ pub struct ScanTicket<'info> {
         bump = event.bump
     )]
     pub event: Account<'info, Events>,
+    #[account(
+        mut,
+        constraint = ticket_mint.key() == seat_account.mint_key @ ErrorCode::InvalidMint,
+    )]
+    pub ticket_mint: Box<InterfaceAccount<'info, MintInterface>>,
+    #[account(address = TOKEN_2022_PROGRAM_ID)]
+    pub token_program: Program<'info, Token2022>,
 }
 
 #[derive(Accounts)]
@@ -704,11 +729,12 @@ impl Events {
 pub struct SeatStatus {
     pub is_minted: bool,
     pub is_scanned: bool,
+    pub mint_key: Pubkey,
     pub bump: u8,
 }
 
 impl SeatStatus {
-    pub const LEN: usize = 1 + 1 + 1; // bool + bool + u8
+    pub const LEN: usize = 1 + 1 + 32 + 1; // bool + bool + Pubkey + u8
 }
 
 // EVENTS
