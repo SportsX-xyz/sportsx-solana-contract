@@ -8,8 +8,8 @@ pub struct TicketAccount {
     /// Ticket type ID (max 32 chars)
     pub ticket_type_id: String,
     
-    /// Sequence number (unique within event)
-    pub sequence_number: u32,
+    /// Ticket UUID (max 36 chars, standard UUID format)
+    pub ticket_uuid: String,
     
     /// Current owner
     pub owner: Pubkey,
@@ -39,8 +39,8 @@ pub struct TicketAccount {
 impl TicketAccount {
     pub const SEED_PREFIX: &'static [u8] = b"ticket";
     
-    // 4+32 + 4+32 + 4 + 32 + 32 + 1 + 1 + 2 + 2 + 8 + 1 = 155 bytes
-    pub const SIZE: usize = 8 + 155;
+    // 4+32 + 4+32 + 4+36 + 32 + 32 + 1 + 1 + 2 + 2 + 8 + 1 = 187 bytes
+    pub const SIZE: usize = 8 + 187;
     
     pub fn can_resell(&self, max_resale_times: u8) -> bool {
         !self.is_checked_in && self.resale_count < max_resale_times

@@ -1,5 +1,8 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Token, Transfer};
+use anchor_spl::{
+    token::{self, Token, Transfer},
+    associated_token::AssociatedToken,
+};
 use crate::state::*;
 use crate::errors::ErrorCode;
 
@@ -8,6 +11,7 @@ use crate::errors::ErrorCode;
 pub struct AuthorizationData {
     pub buyer: Pubkey,
     pub ticket_type_id: String,
+    pub ticket_uuid: String,  // Backend-generated UUID for first-time purchase
     pub max_price: u64,
     pub valid_until: i64,
     pub nonce: u64,
@@ -18,7 +22,7 @@ pub struct AuthorizationData {
 
 /// Purchase a ticket
 #[derive(Accounts)]
-#[instruction(event_id: String, type_id: String)]
+#[instruction(event_id: String, type_id: String, ticket_uuid: String)]
 pub struct PurchaseTicket<'info> {
     #[account(
         seeds = [PlatformConfig::SEED_PREFIX],
@@ -35,21 +39,13 @@ pub struct PurchaseTicket<'info> {
     pub event: Account<'info, EventAccount>,
     
     #[account(
-        mut,
-        seeds = [TicketTypeAccount::SEED_PREFIX, event_id.as_bytes(), type_id.as_bytes()],
-        bump = ticket_type.bump,
-        constraint = ticket_type.has_available_supply() @ ErrorCode::InsufficientSupply
-    )]
-    pub ticket_type: Account<'info, TicketTypeAccount>,
-    
-    #[account(
         init,
         payer = buyer,
         space = TicketAccount::SIZE,
         seeds = [
             TicketAccount::SEED_PREFIX,
             event_id.as_bytes(),
-            &(ticket_type.minted + 1).to_le_bytes()
+            ticket_uuid.as_bytes()
         ],
         bump
     )]
@@ -73,11 +69,18 @@ pub struct PurchaseTicket<'info> {
     #[account(mut)]
     pub platform_usdc_account: AccountInfo<'info>,
     
-    /// CHECK: Verified by token program
-    #[account(mut)]
+    /// CHECK: Organizer's USDC ATA (verified at runtime against event.organizer)
+    #[account(
+        mut,
+        constraint = organizer_usdc_account.owner == &anchor_spl::token::ID,
+    )]
     pub organizer_usdc_account: AccountInfo<'info>,
     
+    /// CHECK: USDC mint address
+    pub usdc_mint: AccountInfo<'info>,
+    
     pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
     
     // PoF integration: pass as remaining_accounts in order:
@@ -88,6 +91,7 @@ pub fn purchase_ticket<'info>(
     ctx: Context<'_, '_, '_, 'info, PurchaseTicket<'info>>,
     event_id: String,
     type_id: String,
+    ticket_uuid: String,
     authorization_data: AuthorizationData,
     backend_signature: [u8; 64],
 ) -> Result<()> {
@@ -100,20 +104,26 @@ pub fn purchase_ticket<'info>(
         ErrorCode::InvalidTicketPda
     );
     
-    // 2. Verify backend signature
+    // 2. Verify UUID matches authorization
+    require!(
+        authorization_data.ticket_uuid == ticket_uuid,
+        ErrorCode::InvalidTicketPda
+    );
+    
+    // 3. Verify backend signature
     verify_backend_signature(
         &ctx.accounts.platform_config.backend_authority,
         &authorization_data,
         &backend_signature,
     )?;
     
-    // 3. Check authorization expiry
+    // 4. Check authorization expiry
     require!(
         current_time <= authorization_data.valid_until,
         ErrorCode::AuthorizationExpired
     );
     
-    // 4. Check nonce+buyer combination (with time-based expiration)
+    // 5. Check nonce+buyer combination (with time-based expiration)
     require!(
         !ctx.accounts.nonce_tracker.is_nonce_used(
             authorization_data.nonce,
@@ -123,16 +133,10 @@ pub fn purchase_ticket<'info>(
         ErrorCode::NonceAlreadyUsed
     );
     
-    // 5. Verify buyer matches
+    // 6. Verify buyer matches
     require!(
         authorization_data.buyer == ctx.accounts.buyer.key(),
         ErrorCode::Unauthorized
-    );
-    
-    // 6. Check price
-    require!(
-        ctx.accounts.ticket_type.price <= authorization_data.max_price,
-        ErrorCode::PriceMismatch
     );
     
     // 7. Check sales time
@@ -141,10 +145,21 @@ pub fn purchase_ticket<'info>(
         ErrorCode::SalesEnded
     );
     
-    let ticket_price = ctx.accounts.ticket_type.price;
+    // 8. Verify organizer USDC account is the correct ATA
+    let expected_organizer_ata = anchor_spl::associated_token::get_associated_token_address(
+        &ctx.accounts.event.organizer,
+        &ctx.accounts.usdc_mint.key()
+    );
+    require!(
+        ctx.accounts.organizer_usdc_account.key() == expected_organizer_ata,
+        ErrorCode::Unauthorized
+    );
+    
+    // Ticket price comes from backend authorization (not stored on-chain)
+    let ticket_price = authorization_data.max_price;
     let platform_fee = ctx.accounts.platform_config.fee_amount_usdc;
     
-    // 8. Transfer platform fee
+    // 9. Transfer platform fee
     let transfer_platform_fee_ctx = CpiContext::new(
         ctx.accounts.token_program.to_account_info(),
         Transfer {
@@ -155,7 +170,7 @@ pub fn purchase_ticket<'info>(
     );
     token::transfer(transfer_platform_fee_ctx, platform_fee)?;
     
-    // 9. Transfer ticket price to organizer
+    // 10. Transfer ticket price to organizer
     let organizer_amount = ticket_price
         .checked_sub(platform_fee)
         .ok_or(ErrorCode::ArithmeticOverflow)?;
@@ -170,16 +185,11 @@ pub fn purchase_ticket<'info>(
     );
     token::transfer(transfer_organizer_ctx, organizer_amount)?;
     
-    // 10. Update ticket type
-    ctx.accounts.ticket_type.minted = ctx.accounts.ticket_type.minted
-        .checked_add(1)
-        .ok_or(ErrorCode::ArithmeticOverflow)?;
-    
-    // 11. Create ticket
+    // 11. Create ticket (UUID防重复通过PDA init约束自动处理)
     let ticket = &mut ctx.accounts.ticket;
     ticket.event_id = event_id;
     ticket.ticket_type_id = type_id;
-    ticket.sequence_number = ctx.accounts.ticket_type.minted;
+    ticket.ticket_uuid = ticket_uuid.clone();
     ticket.owner = ctx.accounts.buyer.key();
     ticket.original_owner = ctx.accounts.buyer.key();
     ticket.resale_count = 0;
@@ -214,7 +224,7 @@ pub fn purchase_ticket<'info>(
         }
     }
     
-    msg!("Ticket purchased: sequence {}", ticket.sequence_number);
+    msg!("Ticket purchased: UUID {}", ticket.ticket_uuid);
     
     Ok(())
 }
@@ -234,6 +244,7 @@ pub fn verify_backend_signature(
     let mut message = Vec::new();
     message.extend_from_slice(&authorization_data.buyer.to_bytes());
     message.extend_from_slice(authorization_data.ticket_type_id.as_bytes());
+    message.extend_from_slice(authorization_data.ticket_uuid.as_bytes());
     message.extend_from_slice(&authorization_data.max_price.to_le_bytes());
     message.extend_from_slice(&authorization_data.valid_until.to_le_bytes());
     message.extend_from_slice(&authorization_data.nonce.to_le_bytes());

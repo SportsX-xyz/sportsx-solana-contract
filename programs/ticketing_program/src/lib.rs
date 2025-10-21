@@ -115,39 +115,6 @@ pub mod ticketing_program {
         instructions::event::remove_checkin_operator(ctx, event_id, operator)
     }
 
-    // ==================== Ticket Management ====================
-
-    /// Create a new ticket type
-    pub fn create_ticket_type(
-        ctx: Context<CreateTicketType>,
-        event_id: String,
-        type_id: String,
-        tier_name: String,
-        price: u64,
-        total_supply: u32,
-        color: u32,
-    ) -> Result<()> {
-        instructions::ticket_management::create_ticket_type(
-            ctx,
-            event_id,
-            type_id,
-            tier_name,
-            price,
-            total_supply,
-            color,
-        )
-    }
-
-    /// Batch mint tickets (lazy minting - increases supply)
-    pub fn batch_mint_tickets(
-        ctx: Context<BatchMintTickets>,
-        event_id: String,
-        type_id: String,
-        quantity: u32,
-    ) -> Result<()> {
-        instructions::ticket_management::batch_mint_tickets(ctx, event_id, type_id, quantity)
-    }
-
     // ==================== Purchase Flow ====================
 
     /// Purchase a ticket with backend authorization
@@ -155,6 +122,7 @@ pub mod ticketing_program {
         ctx: Context<'_, '_, '_, 'info, PurchaseTicket<'info>>,
         event_id: String,
         type_id: String,
+        ticket_uuid: String,
         authorization_data: purchase::AuthorizationData,
         backend_signature: [u8; 64],
     ) -> Result<()> {
@@ -162,6 +130,7 @@ pub mod ticketing_program {
             ctx,
             event_id,
             type_id,
+            ticket_uuid,
             authorization_data,
             backend_signature,
         )

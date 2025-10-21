@@ -1,5 +1,8 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Token, Transfer};
+use anchor_spl::{
+    token::{self, Token, Transfer},
+    associated_token::AssociatedToken,
+};
 use crate::state::*;
 use crate::errors::ErrorCode;
 
@@ -126,11 +129,18 @@ pub struct BuyListedTicket<'info> {
     #[account(mut)]
     pub platform_usdc_account: AccountInfo<'info>,
     
-    /// CHECK: Verified by token program
-    #[account(mut)]
+    /// CHECK: Organizer's USDC ATA (verified at runtime against event.organizer)
+    #[account(
+        mut,
+        constraint = organizer_usdc_account.owner == &anchor_spl::token::ID,
+    )]
     pub organizer_usdc_account: AccountInfo<'info>,
     
+    /// CHECK: USDC mint address
+    pub usdc_mint: AccountInfo<'info>,
+    
     pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
     
     // PoF integration: pass as remaining_accounts in order:
     // [0] seller_pof_wallet (mut), [1] buyer_pof_wallet (mut), 
@@ -184,6 +194,16 @@ pub fn buy_listed_ticket<'info>(
     require!(
         ctx.accounts.listing.price <= authorization_data.max_price,
         ErrorCode::PriceMismatch
+    );
+    
+    // 7. Verify organizer USDC account is the correct ATA
+    let expected_organizer_ata = anchor_spl::associated_token::get_associated_token_address(
+        &ctx.accounts.event.organizer,
+        &ctx.accounts.usdc_mint.key()
+    );
+    require!(
+        ctx.accounts.organizer_usdc_account.key() == expected_organizer_ata,
+        ErrorCode::Unauthorized
     );
     
     let resale_price = ctx.accounts.listing.price;

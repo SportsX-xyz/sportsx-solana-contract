@@ -15,6 +15,7 @@ const backendAuthority = Keypair.fromSecretKey(
 function signPurchaseAuthorization(
   buyer: PublicKey,
   ticketTypeId: string,
+  ticketUuid: string,      // Backend-generated UUID (standard UUID format)
   maxPrice: bigint,
   validUntil: bigint,
   nonce: bigint,
@@ -26,6 +27,7 @@ function signPurchaseAuthorization(
   const parts: Buffer[] = [
     buyer.toBuffer(),                              // 32 bytes
     Buffer.from(ticketTypeId),                     // variable
+    Buffer.from(ticketUuid),                       // variable (36 bytes for standard UUID)
     Buffer.from(new BigUint64Array([maxPrice]).buffer),   // 8 bytes LE
     Buffer.from(new BigInt64Array([validUntil]).buffer),  // 8 bytes LE  
     Buffer.from(new BigUint64Array([nonce]).buffer),      // 8 bytes LE
@@ -64,13 +66,18 @@ export async function POST_authorize_purchase(req, res) {
   //    - KYC检查
   //    - 黑名单
   //    - 限购规则
+  //    - 余票验证（数据库）
   
   const nonce = BigInt(Date.now());
   const validUntil = BigInt(Math.floor(Date.now() / 1000) + 60); // 60秒有效
   
+  // 重要：使用票的UUID（必须与数据库中存储的UUID一致）
+  const ticketUuid = ticket.uuid;  // 数据库中预生成的标准UUID
+  
   const signature = signPurchaseAuthorization(
     new PublicKey(buyer),
     ticket.ticketTypeId,
+    ticketUuid,       // UUID用于链上PDA生成
     BigInt(ticket.price),
     validUntil,
     nonce,
@@ -82,6 +89,7 @@ export async function POST_authorize_purchase(req, res) {
   // 3. 存储nonce和ticket关联 (10分钟TTL)
   await redis.setex(`nonce:${nonce}`, 600, JSON.stringify({
     ticketId: ticket.id,
+    ticketUuid,
     buyer,
   }));
   
@@ -91,6 +99,7 @@ export async function POST_authorize_purchase(req, res) {
   res.json({
     buyer,
     ticketTypeId: ticket.ticketTypeId,
+    ticketUuid,       // 前端需要传给合约
     maxPrice: ticket.price.toString(),
     validUntil: validUntil.toString(),
     nonce: nonce.toString(),
@@ -116,9 +125,11 @@ export async function POST_authorize_resale(req, res) {
   const nonce = BigInt(Date.now());
   const validUntil = BigInt(Math.floor(Date.now() / 1000) + 60);
   
+  // 二手票：ticketUuid可以传空字符串（不会被使用）
   const signature = signPurchaseAuthorization(
     new PublicKey(buyer),
     ticket.ticketTypeId,
+    "",                        // Resale: UUID not used (empty string)
     BigInt(listing.price),
     validUntil,
     nonce,
@@ -132,10 +143,11 @@ export async function POST_authorize_resale(req, res) {
   res.json({
     buyer,
     ticketTypeId: ticket.ticketTypeId,
+    ticketUuid: "",            // Empty for resale
     maxPrice: listing.price.toString(),
     validUntil: validUntil.toString(),
     nonce: nonce.toString(),
-    ticketPda: ticketPda,  // Key difference for resale
+    ticketPda: ticketPda,      // Key difference for resale
     rowNumber: ticket.rowNumber,
     columnNumber: ticket.columnNumber,
     signature: Array.from(signature),
@@ -149,13 +161,11 @@ export async function POST_authorize_resale(req, res) {
 ```typescript
 // 监听链上购票成功事件
 program.addEventListener('purchaseTicketEvent', async (event) => {
-  const { buyer, eventId, sequenceNumber, rowNumber, columnNumber, ticketPda } = event;
+  const { buyer, eventId, ticketUuid, rowNumber, columnNumber, ticketPda } = event;
   
-  // 通过row+column关联数据库中的票
+  // 通过UUID直接关联数据库中的票
   const dbTicket = await db.tickets.findOne({
-    eventId,
-    row: rowNumber,
-    column: columnNumber,
+    uuid: ticketUuid,
     status: 'pending'
   });
   
@@ -164,21 +174,31 @@ program.addEventListener('purchaseTicketEvent', async (event) => {
     await db.tickets.update(dbTicket.id, {
       status: 'sold',
       ticketPda: ticketPda.toString(),
-      sequenceNumber,
       soldAt: new Date(),
       owner: buyer.toString(),
     });
     
-    console.log(`Ticket ${dbTicket.id} sold: ${rowNumber}排${columnNumber}座`);
+    console.log(`Ticket ${dbTicket.id} sold: UUID ${ticketUuid}`);
   }
 });
 
 // 或者通过nonce查询（如果Redis存了ticketId）
 const nonceData = await redis.get(`nonce:${event.nonce}`);
 if (nonceData) {
-  const { ticketId } = JSON.parse(nonceData);
-  await db.tickets.update(ticketId, { ... });
+  const { ticketId, ticketUuid } = JSON.parse(nonceData);
+  await db.tickets.update(ticketId, { 
+    status: 'sold',
+    ticketPda: event.ticketPda.toString(),
+    soldAt: new Date(),
+  });
 }
+
+// 防重复mint机制说明：
+// 1. 每个ticket在数据库中有唯一UUID
+// 2. 链上使用UUID生成PDA: [b"ticket", event_id, uuid]
+// 3. 相同UUID会生成相同PDA地址
+// 4. Anchor的 #[account(init)] 约束会检查账户是否已存在
+// 5. 如果UUID重复，交易自动失败，防止双重mint
 ```
 
 ## 前端调用
@@ -199,12 +219,17 @@ await program.methods
   .purchaseTicket(
     eventId,
     ticketTypeId,
+    auth.ticketUuid,  // 新增：UUID参数
     {
       buyer: new PublicKey(auth.buyer),
       ticketTypeId: auth.ticketTypeId,
+      ticketUuid: auth.ticketUuid,  // 新增：UUID字段
       maxPrice: new BN(auth.maxPrice),
       validUntil: new BN(auth.validUntil),
       nonce: new BN(auth.nonce),
+      ticketPda: null,  // 首次购买为null
+      rowNumber: auth.rowNumber,
+      columnNumber: auth.columnNumber,
     },
     auth.signature
   )

@@ -15,6 +15,7 @@ import {
   getAccount,
 } from "@solana/spl-token";
 import { assert } from "chai";
+import { v4 as uuidv4 } from "uuid";
 
 // PoF Program ID (optional - tests will skip PoF if not available)
 const POF_PROGRAM_ID = new PublicKey("E5Arj2VAzHNHwWgFQgb6nHfp1WQA5ShEpdbjYmknpafV");
@@ -54,7 +55,6 @@ describe("SportsX Ticketing Program", () => {
   let platformConfig: PublicKey;
   let nonceTracker: PublicKey;
   let eventPda: PublicKey;
-  let ticketTypePda: PublicKey;
   let ticketPda: PublicKey;
   let listingPda: PublicKey;
   let checkinAuthorityPda: PublicKey;
@@ -157,14 +157,6 @@ describe("SportsX Ticketing Program", () => {
       program.programId
     );
 
-    [ticketTypePda] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("ticket_type"),
-        Buffer.from(EVENT_ID),
-        Buffer.from(TICKET_TYPE_ID),
-      ],
-      program.programId
-    );
   });
 
   describe("Platform Management", () => {
@@ -290,56 +282,17 @@ describe("SportsX Ticketing Program", () => {
     });
   });
 
-  describe("Ticket Management", () => {
-    it("Creates ticket type", async () => {
-      await program.methods
-        .createTicketType(
-          EVENT_ID,
-          TICKET_TYPE_ID,
-          "VIP Tier",
-          new BN(TICKET_PRICE),
-          100, // total supply
-          0xff0000 // red color
-        )
-        .accounts({
-          event: eventPda,
-          ticketType: ticketTypePda,
-          organizer: deployer.publicKey,
-          systemProgram: SystemProgram.programId,
-        })
-        .rpc();
-
-      const ticketType = await program.account.ticketTypeAccount.fetch(ticketTypePda);
-      assert.equal(ticketType.eventId, EVENT_ID);
-      assert.equal(ticketType.typeId, TICKET_TYPE_ID);
-      assert.equal(ticketType.price.toNumber(), TICKET_PRICE);
-      assert.equal(ticketType.totalSupply, 100);
-      assert.equal(ticketType.minted, 0);
-    });
-
-    it("Batch mints tickets (increases supply)", async () => {
-      await program.methods
-        .batchMintTickets(EVENT_ID, TICKET_TYPE_ID, 50)
-        .accounts({
-          event: eventPda,
-          ticketType: ticketTypePda,
-          organizer: deployer.publicKey,
-        })
-        .rpc();
-
-      const ticketType = await program.account.ticketTypeAccount.fetch(ticketTypePda);
-      assert.equal(ticketType.totalSupply, 150);
-    });
-  });
 
   describe("Purchase Flow", () => {
     it("Purchases a ticket with backend authorization", async () => {
       const nonce = Date.now();
       const validUntil = Math.floor(Date.now() / 1000) + 300; // 5 minutes
+      const ticketUuid = uuidv4();  // Generate UUID for this ticket
 
       const authData = {
         buyer: buyer.publicKey,
         ticketTypeId: TICKET_TYPE_ID,
+        ticketUuid,  // UUID for first-time purchase
         maxPrice: new BN(TICKET_PRICE),
         validUntil: new BN(validUntil),
         nonce: new BN(nonce),
@@ -351,11 +304,12 @@ describe("SportsX Ticketing Program", () => {
       // Mock signature (in production, backend would sign this)
       const signature = new Array(64).fill(0);
 
+      // PDA uses UUID instead of sequence number
       [ticketPda] = PublicKey.findProgramAddressSync(
         [
           Buffer.from("ticket"),
           Buffer.from(EVENT_ID),
-          Buffer.from([1, 0, 0, 0]), // sequence 1 (little-endian u32)
+          Buffer.from(ticketUuid),
         ],
         program.programId
       );
@@ -368,18 +322,19 @@ describe("SportsX Ticketing Program", () => {
       ).amount;
 
       await program.methods
-        .purchaseTicket(EVENT_ID, TICKET_TYPE_ID, authData, signature)
+        .purchaseTicket(EVENT_ID, TICKET_TYPE_ID, ticketUuid, authData, signature)
         .accounts({
           platformConfig,
           event: eventPda,
-          ticketType: ticketTypePda,
           ticket: ticketPda,
           nonceTracker,
           buyer: buyer.publicKey,
           buyerUsdcAccount,
           platformUsdcAccount,
           organizerUsdcAccount,
+          usdcMint,
           tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
         .signers([buyer])
@@ -389,7 +344,7 @@ describe("SportsX Ticketing Program", () => {
       const ticket = await program.account.ticketAccount.fetch(ticketPda);
       assert.equal(ticket.eventId, EVENT_ID);
       assert.equal(ticket.owner.toString(), buyer.publicKey.toString());
-      assert.equal(ticket.sequenceNumber, 1);
+      assert.equal(ticket.ticketUuid, ticketUuid);
       assert.equal(ticket.isCheckedIn, false);
       assert.equal(ticket.rowNumber, 5);
       assert.equal(ticket.columnNumber, 10);
@@ -414,9 +369,7 @@ describe("SportsX Ticketing Program", () => {
         TICKET_PRICE - platformFee
       );
 
-      // Verify ticket type minted count
-      const ticketType = await program.account.ticketTypeAccount.fetch(ticketTypePda);
-      assert.equal(ticketType.minted, 1);
+      // No more minted count (removed from TicketTypeAccount)
     });
 
     it("Purchases ticket with PoF (optional)", async () => {
@@ -427,9 +380,11 @@ describe("SportsX Ticketing Program", () => {
 
       const nonce = Date.now() + 1;
       const validUntil = Math.floor(Date.now() / 1000) + 300;
+      const ticketUuid2 = uuidv4();
       const authData = {
         buyer: buyer.publicKey,
         ticketTypeId: TICKET_TYPE_ID,
+        ticketUuid: ticketUuid2,
         maxPrice: new BN(TICKET_PRICE),
         validUntil: new BN(validUntil),
         nonce: new BN(nonce),
@@ -440,18 +395,21 @@ describe("SportsX Ticketing Program", () => {
       const signature = new Array(64).fill(0);
 
       const [ticket2Pda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("ticket"), Buffer.from(EVENT_ID), Buffer.from([2, 0, 0, 0])],
+        [Buffer.from("ticket"), Buffer.from(EVENT_ID), Buffer.from(ticketUuid2)],
         program.programId
       );
 
       await program.methods
-        .purchaseTicket(EVENT_ID, TICKET_TYPE_ID, authData, signature)
+        .purchaseTicket(EVENT_ID, TICKET_TYPE_ID, ticketUuid2, authData, signature)
         .accounts({
-          platformConfig, event: eventPda, ticketType: ticketTypePda,
+          platformConfig, event: eventPda,
           ticket: ticket2Pda, nonceTracker,
           buyer: buyer.publicKey, buyerUsdcAccount,
           platformUsdcAccount, organizerUsdcAccount,
-          tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId,
+          usdcMint,
+          tokenProgram: TOKEN_PROGRAM_ID, 
+          associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
         })
         .remainingAccounts([
           { pubkey: getPofWalletPda(buyer.publicKey), isWritable: true, isSigner: false },
@@ -514,6 +472,7 @@ describe("SportsX Ticketing Program", () => {
       const resaleAuthData = {
         buyer: buyer2.publicKey,
         ticketTypeId: TICKET_TYPE_ID,
+        ticketUuid: "",  // Resale: empty UUID (not used)
         maxPrice: new BN(RESALE_PRICE),
         validUntil: new BN(validUntil),
         nonce: new BN(nonce),
@@ -537,7 +496,9 @@ describe("SportsX Ticketing Program", () => {
           sellerUsdcAccount: buyerUsdcAccount,
           platformUsdcAccount,
           organizerUsdcAccount,
+          usdcMint,
           tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
         })
         .signers([buyer2])
         .rpc();
@@ -597,6 +558,7 @@ describe("SportsX Ticketing Program", () => {
       const resaleAuth = {
         buyer: buyer.publicKey,
         ticketTypeId: TICKET_TYPE_ID,
+        ticketUuid: "",  // Resale: empty UUID
         maxPrice: new BN(RESALE_PRICE),
         validUntil: new BN(validUntil),
         nonce: new BN(nonce),
@@ -614,7 +576,9 @@ describe("SportsX Ticketing Program", () => {
           buyer: buyer.publicKey, originalSeller: buyer2.publicKey,
           buyerUsdcAccount, sellerUsdcAccount: buyer2UsdcAccount,
           platformUsdcAccount, organizerUsdcAccount,
+          usdcMint,
           tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
         })
         .remainingAccounts([
           { pubkey: getPofWalletPda(buyer2.publicKey), isWritable: true, isSigner: false }, // seller
@@ -746,9 +710,11 @@ describe("SportsX Ticketing Program", () => {
       // Buy a new ticket first (for PoF test)
       const nonce = Date.now() + 999;
       const validUntil = Math.floor(Date.now() / 1000) + 300;
+      const ticketUuid3 = uuidv4();
       const authData = {
         buyer: buyer2.publicKey,
         ticketTypeId: TICKET_TYPE_ID,
+        ticketUuid: ticketUuid3,
         maxPrice: new BN(TICKET_PRICE),
         validUntil: new BN(validUntil),
         nonce: new BN(nonce),
@@ -758,21 +724,22 @@ describe("SportsX Ticketing Program", () => {
       };
       const signature = new Array(64).fill(0);
 
-      const ticketType = await program.account.ticketTypeAccount.fetch(ticketTypePda);
-      const nextSeq = ticketType.minted + 1;
       const [newTicketPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("ticket"), Buffer.from(EVENT_ID), new BN(nextSeq).toArrayLike(Buffer, 'le', 4)],
+        [Buffer.from("ticket"), Buffer.from(EVENT_ID), Buffer.from(ticketUuid3)],
         program.programId
       );
 
       await program.methods
-        .purchaseTicket(EVENT_ID, TICKET_TYPE_ID, authData, signature)
+        .purchaseTicket(EVENT_ID, TICKET_TYPE_ID, ticketUuid3, authData, signature)
         .accounts({
-          platformConfig, event: eventPda, ticketType: ticketTypePda,
+          platformConfig, event: eventPda,
           ticket: newTicketPda, nonceTracker,
           buyer: buyer2.publicKey, buyerUsdcAccount: buyer2UsdcAccount,
           platformUsdcAccount, organizerUsdcAccount,
-          tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId,
+          usdcMint,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
         })
         .signers([buyer2])
         .rpc();

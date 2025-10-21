@@ -20,9 +20,6 @@ pub enum ErrorCode {
     #[msg("Ticket sales has ended")]
     SalesEnded,
     
-    #[msg("Insufficient ticket supply")]
-    InsufficientSupply,
-    
     #[msg("Invalid signature")]
     InvalidSignature,
     
