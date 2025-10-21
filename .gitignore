@@ -1,51 +1,87 @@
-# Documentation
-.docs/
-
-# Cursor IDE
-.cursor/
-
 # Anchor
 .anchor
 target/
+**/*.rs.bk
 test-ledger/
 
-# Rust
-**/*.rs.bk
-Cargo.lock
+# IDL
+!target/idl/
+!target/types/
 
 # Node
 node_modules/
-.yarn/
-yarn-error.log
-package-lock.json
+dist/
+build/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Yarn
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+.pnp.*
 
 # IDEs
 .vscode/
 .idea/
+.cursor/
 *.swp
 *.swo
 *~
+.DS_Store
+
+# Rust
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# Solana
+.solana/
+test-ledger/
+ledger/
+
+# Environment
+.env
+.env.local
+.env.*.local
+*.key
+*.json.keypair
+id.json
+
+# Build artifacts
+*.so
+*.wasm
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Environment
-.env
-.env.local
-
 # Logs
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+logs/
 
-# Build outputs
-dist/
-build/
+# Backup files
+*.bak
+*.backup
+*~
 
-# Solana
-.config/
-wallet.json
-keypair.json
-
+# Local development
+.cache/
+.local/
+.docs/

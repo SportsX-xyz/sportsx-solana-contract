@@ -1,687 +1,715 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program, BN } from "@coral-xyz/anchor";
+import { TicketingProgram } from "../target/types/ticketing_program";
 import {
-    PublicKey,
-    Keypair,
-    SystemProgram,
-    SYSVAR_RENT_PUBKEY,
-    LAMPORTS_PER_SOL,
+  PublicKey,
+  Keypair,
+  SystemProgram,
+  LAMPORTS_PER_SOL,
 } from "@solana/web3.js";
 import {
-    ASSOCIATED_TOKEN_PROGRAM_ID,
-    TOKEN_2022_PROGRAM_ID,
-    getAssociatedTokenAddress,
-    getAssociatedTokenAddressSync,
+  TOKEN_PROGRAM_ID,
+  createMint,
+  createAccount,
+  mintTo,
+  getAccount,
 } from "@solana/spl-token";
 import { assert } from "chai";
-import { TicketingProgram } from "../target/types/ticketing_program";
 
-describe("ticketing-program", () => {
-    const provider = anchor.AnchorProvider.env();
-    anchor.setProvider(provider);
+// PoF Program ID (optional - tests will skip PoF if not available)
+const POF_PROGRAM_ID = new PublicKey("E5Arj2VAzHNHwWgFQgb6nHfp1WQA5ShEpdbjYmknpafV");
+const USE_POF = false; // Set to true to test PoF integration
 
-    const program = anchor.workspace.TicketingProgram as Program<TicketingProgram>;
-    const connection = provider.connection;
+// Helper: Get PoF wallet PDA
+function getPofWalletPda(wallet: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("wallet_points"), wallet.toBuffer()],
+    POF_PROGRAM_ID
+  )[0];
+}
 
-    let platformConfigPDA: PublicKey;
-    let platformAuthority: PublicKey;
-    let user: Keypair;
-    let merchant: Keypair;
-    let ticketMint: Keypair;
-    let eventId = "test-event-123";
-    let ticketId = "ticket-001";
-    let seatNumber = "A-101";
+// Helper: Get PoF global state PDA
+function getPofGlobalStatePda(): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("global_state")],
+    POF_PROGRAM_ID
+  )[0];
+}
 
-    before(async () => {
-        // Generate test users
-        user = Keypair.generate();
-        merchant = Keypair.generate();
-        platformAuthority = provider.wallet.publicKey;
-        ticketMint = Keypair.generate();
+describe("SportsX Ticketing Program", () => {
+  const provider = anchor.AnchorProvider.env();
+  anchor.setProvider(provider);
 
+  const program = anchor.workspace.TicketingProgram as Program<TicketingProgram>;
 
-        console.log("--- DEBUG Public Keys ---");
-        console.log("User Public Key:", user.publicKey.toBase58());
-        console.log("Merchant Public Key:", merchant.publicKey.toBase58());
-        console.log("Platform Authority Key (Wallet):", platformAuthority.toBase58());
-        console.log("ticketMint Public Key:", ticketMint.publicKey.toBase58());
+  // Keypairs
+  const deployer = provider.wallet as anchor.Wallet;
+  const organizer = Keypair.generate();
+  const buyer = Keypair.generate();
+  const buyer2 = Keypair.generate();
+  const backendAuthority = Keypair.generate();
+  const checkinOperator = Keypair.generate();
 
-        // Fund test users
-        await provider.connection.requestAirdrop(user.publicKey, LAMPORTS_PER_SOL);
-        await provider.connection.requestAirdrop(merchant.publicKey, LAMPORTS_PER_SOL);
+  // PDAs
+  let platformConfig: PublicKey;
+  let nonceTracker: PublicKey;
+  let eventPda: PublicKey;
+  let ticketTypePda: PublicKey;
+  let ticketPda: PublicKey;
+  let listingPda: PublicKey;
+  let checkinAuthorityPda: PublicKey;
 
-        // Derive platform config PDA
-        [platformConfigPDA] = PublicKey.findProgramAddressSync(
-            [Buffer.from("PLATFORM_CONFIG")],
-            program.programId
-        );
+  // USDC Mint and Accounts
+  let usdcMint: PublicKey;
+  let platformUsdcAccount: PublicKey;
+  let organizerUsdcAccount: PublicKey;
+  let buyerUsdcAccount: PublicKey;
+  let buyer2UsdcAccount: PublicKey;
 
-        console.log("Setup complete:");
-        console.log("Platform PDA:", platformConfigPDA.toBase58());
+  // Test Data
+  const EVENT_ID = "test_event_001";
+  const TICKET_TYPE_ID = "vip";
+  const PLATFORM_FEE = 100_000; // 0.1 USDC
+  const TICKET_PRICE = 50_000_000; // 50 USDC
+
+  before(async () => {
+    // Airdrop SOL to test accounts
+    await Promise.all([
+      provider.connection.requestAirdrop(organizer.publicKey, 5 * LAMPORTS_PER_SOL),
+      provider.connection.requestAirdrop(buyer.publicKey, 5 * LAMPORTS_PER_SOL),
+      provider.connection.requestAirdrop(buyer2.publicKey, 5 * LAMPORTS_PER_SOL),
+    ]);
+
+    // Wait for airdrops to confirm
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
+    // Create test USDC mint (we control mint authority for testing)
+    usdcMint = await createMint(
+      provider.connection,
+      deployer.payer,
+      deployer.publicKey,
+      null,
+      6 // USDC decimals
+    );
+    console.log("  Created test USDC mint:", usdcMint.toString());
+
+    // Create USDC token accounts
+    platformUsdcAccount = await createAccount(
+      provider.connection,
+      deployer.payer,
+      usdcMint,
+      deployer.publicKey
+    );
+
+    organizerUsdcAccount = await createAccount(
+      provider.connection,
+      deployer.payer,
+      usdcMint,
+      organizer.publicKey
+    );
+
+    buyerUsdcAccount = await createAccount(
+      provider.connection,
+      deployer.payer,
+      usdcMint,
+      buyer.publicKey
+    );
+
+    buyer2UsdcAccount = await createAccount(
+      provider.connection,
+      deployer.payer,
+      usdcMint,
+      buyer2.publicKey
+    );
+
+    // Mint USDC to buyers
+    await mintTo(
+      provider.connection,
+      deployer.payer,
+      usdcMint,
+      buyerUsdcAccount,
+      deployer.publicKey,
+      1000_000_000 // 1000 USDC
+    );
+
+    await mintTo(
+      provider.connection,
+      deployer.payer,
+      usdcMint,
+      buyer2UsdcAccount,
+      deployer.publicKey,
+      1000_000_000 // 1000 USDC
+    );
+
+    // Derive PDAs
+    [platformConfig] = PublicKey.findProgramAddressSync(
+      [Buffer.from("platform_config")],
+      program.programId
+    );
+
+    [nonceTracker] = PublicKey.findProgramAddressSync(
+      [Buffer.from("nonce_tracker")],
+      program.programId
+    );
+
+    [eventPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("event"), Buffer.from(EVENT_ID)],
+      program.programId
+    );
+
+    [ticketTypePda] = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("ticket_type"),
+        Buffer.from(EVENT_ID),
+        Buffer.from(TICKET_TYPE_ID),
+      ],
+      program.programId
+    );
+  });
+
+  describe("Platform Management", () => {
+    it("Initializes platform", async () => {
+      await program.methods
+        .initializePlatform(
+          deployer.publicKey,
+          new BN(PLATFORM_FEE),
+          backendAuthority.publicKey
+        )
+        .accounts({
+          platformConfig,
+          nonceTracker,
+          deployer: deployer.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+
+      const config = await program.account.platformConfig.fetch(platformConfig);
+      assert.equal(config.feeReceiver.toString(), deployer.publicKey.toString());
+      assert.equal(config.feeAmountUsdc.toNumber(), PLATFORM_FEE);
+      assert.equal(config.updateAuthority.toString(), deployer.publicKey.toString());
+      assert.equal(config.backendAuthority.toString(), backendAuthority.publicKey.toString());
+      assert.equal(config.isPaused, false);
     });
 
-    describe("PlatformConfig", () => {
-        it("Initializes platform config successfully", async () => {
-            const tx = await program.methods
-                .initializePlatformConfig(platformAuthority)
-                .accounts({
-                    payer: provider.wallet.publicKey,
-                    platformConfig: platformConfigPDA,
-                    admin: provider.wallet.publicKey,
-                    systemProgram: SystemProgram.programId,
-                })
-                .rpc();
+    it("Updates platform config", async () => {
+      const newFee = 150_000; // 0.15 USDC
 
-            const config = await program.account.platformConfig.fetch(platformConfigPDA);
-            assert.equal(config.platformAuthority.toBase58(), platformAuthority.toBase58());
-            assert.isNumber(config.bump);
-            console.log("✅ Platform config initialized:", tx);
-        });
+      await program.methods
+        .updatePlatformConfig(null, new BN(newFee), null)
+        .accounts({
+          platformConfig,
+          authority: deployer.publicKey,
+        })
+        .rpc();
 
-        it("Fails to initialize twice (already exists)", async () => {
-            try {
-                await program.methods
-                    .initializePlatformConfig(platformAuthority)
-                    .accounts({
-                        payer: provider.wallet.publicKey,
-                        platformConfig: platformConfigPDA,
-                        admin: provider.wallet.publicKey,
-                        systemProgram: SystemProgram.programId,
-                    })
-                    .rpc();
-                assert.fail("Should have failed with existing account");
-            } catch (error: any) {
-                assert.include(error.message, "already in use");
-                console.log("✅ Correctly rejected duplicate initialization");
-            }
-        });
-
-        it("Fails with unauthorized admin", async () => {
-            const fakeAdmin = Keypair.generate();
-            await provider.connection.requestAirdrop(fakeAdmin.publicKey, anchor.web3.LAMPORTS_PER_SOL);
-            const [platformConfigPDA_fake] = anchor.web3.PublicKey.findProgramAddressSync(
-                [Buffer.from("PLATFORM_CONFIG")],
-                program.programId
-            );
-            try {
-                await program.methods
-                    .initializePlatformConfig(platformAuthority)
-                    .accounts({
-                        payer: fakeAdmin.publicKey,
-                        platformConfig: platformConfigPDA_fake,
-                        admin: fakeAdmin.publicKey,
-                        systemProgram: SystemProgram.programId,
-                    })
-                    .signers([fakeAdmin])
-                    .rpc();
-                assert.fail("Should have failed, but did not.");
-            } catch (error: any) {
-                assert.include(error.message, "already in use");
-                console.log("✅ Correctly rejected duplicate initialization attempt by fakeAdmin");
-            }
-        });
+      const config = await program.account.platformConfig.fetch(platformConfig);
+      assert.equal(config.feeAmountUsdc.toNumber(), newFee);
     });
 
-    describe("Events", () => {
-        let eventPDA: PublicKey;
+    it("Toggles pause", async () => {
+      await program.methods
+        .togglePause()
+        .accounts({
+          platformConfig,
+          authority: deployer.publicKey,
+        })
+        .rpc();
 
-        before(async () => {
-            [eventPDA] = PublicKey.findProgramAddressSync(
-                [Buffer.from("EVENT"), Buffer.from(eventId)],
-                program.programId
-            );
-        });
+      let config = await program.account.platformConfig.fetch(platformConfig);
+      assert.equal(config.isPaused, true);
 
-        it("Creates event successfully", async () => {
-            const tx = await program.methods
-                .createEvent(
-                    eventId,
-                    "https://example.com/event.json",
-                    merchant.publicKey,
-                    "Test Concert",
-                    "TCON",
-                    new anchor.BN(Date.now() + 24 * 60 * 60 * 1000) // tomorrow
-                )
-                .accounts({
-                    payer: provider.wallet.publicKey,
-                    event: eventPDA,
-                    platformConfig: platformConfigPDA,
-                    platformAuthority: platformAuthority,
-                    systemProgram: SystemProgram.programId,
-                })
-                .rpc();
+      // Toggle back
+      await program.methods
+        .togglePause()
+        .accounts({
+          platformConfig,
+          authority: deployer.publicKey,
+        })
+        .rpc();
 
-            const event = await program.account.events.fetch(eventPDA);
-            assert.equal(event.eventId, eventId);
-            assert.equal(event.name, "Test Concert");
-            assert.equal(event.symbol, "TCON");
-            assert.equal(event.merchantKey.toBase58(), merchant.publicKey.toBase58());
-            console.log("✅ Event created:", tx);
-        });
+      config = await program.account.platformConfig.fetch(platformConfig);
+      assert.equal(config.isPaused, false);
+    });
+  });
 
-        it("Fails to create event with invalid URI", async () => {
+  describe("Event Management", () => {
+    const now = Math.floor(Date.now() / 1000);
+    const startTime = now + 3600; // 1 hour from now (allow check-in)
+    const endTime = startTime + 7200; // 2 hours later
 
-            const invalidEventId = "invalid-event-uri";
-            const [invalidEventPDA] = PublicKey.findProgramAddressSync(
-                [Buffer.from("EVENT"), Buffer.from(invalidEventId)],
-                program.programId
-            );
+    it("Creates an event (Active status by default)", async () => {
+      await program.methods
+        .createEvent(
+          EVENT_ID,
+          "ipfs://test-metadata",
+          new BN(startTime),
+          new BN(endTime),
+          new BN(now), // tickets available now
+          new BN(600), // stop sales 10 minutes before
+          100, // 1% resale fee
+          3 // max 3 resales
+        )
+        .accounts({
+          event: eventPda,
+          organizer: organizer.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([organizer])
+        .rpc();
 
-            try {
-                await program.methods
-                    .createEvent(
-                        invalidEventId,
-                        "http://invalid", // invalid protocol
-                        merchant.publicKey,
-                        "Invalid Event",
-                        "INV",
-                        new anchor.BN(Date.now() + 86400)
-                    )
-                    .accounts({
-                        payer: provider.wallet.publicKey,
-                        event: invalidEventPDA,
-                        platformConfig: platformConfigPDA,
-                        platformAuthority: platformAuthority,
-                        systemProgram: SystemProgram.programId,
-                    })
-                    .rpc();
-                assert.fail("Should fail with invalid URI");
-            } catch (error: any) {
-                console.log("Error:", error.toString());
-                if (error.error?.errorCode?.code === "InvalidUri") {
-                    console.log("✅ Correctly failed with InvalidUri");
-                } else {
-                    console.log("Got different error:", error.error?.errorCode?.code);
-                }
-            }
-        });
-
-        it("Fails to create event with invalid platform authority", async () => {
-            // const fakeAdmin = Keypair.generate();
-            try {
-                await program.methods
-                    .createEvent(
-                        "unauth-event",
-                        "https://valid.com",
-                        merchant.publicKey,
-                        "Unauthorized",
-                        "UNAUTH",
-                        new anchor.BN(Date.now() + 86400)
-                    )
-                    .accounts({
-                        payer: provider.wallet.publicKey,
-                        event: Keypair.generate().publicKey,
-                        platformConfig: platformConfigPDA,
-                        platformAuthority: user.publicKey, // wrong authority
-                        systemProgram: SystemProgram.programId,
-                    })
-                    .signers([user])
-                    .rpc();
-                assert.fail("Should fail with invalid authority");
-            } catch (error: any) {
-                console.log("Error:", error.toString());
-                if (error.error?.errorCode?.code === "InvalidPlatformAuthority") {
-                    console.log("✅ Correctly failed with InvalidPlatformAuthority");
-                } else {
-                    console.log("Got different error:", error.error?.errorCode?.code);
-                }
-            }
-        });
+      const event = await program.account.eventAccount.fetch(eventPda);
+      assert.equal(event.eventId, EVENT_ID);
+      assert.equal(event.organizer.toString(), organizer.publicKey.toString());
+      assert.equal(event.status, 1); // Active by default
     });
 
-    describe("MintTicket", () => {
-        let eventPDA: PublicKey;
-        let seatAccountPDA: PublicKey;
+    it("Adds check-in operator", async () => {
+      [checkinAuthorityPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("checkin_auth"),
+          Buffer.from(EVENT_ID),
+          checkinOperator.publicKey.toBuffer(),
+        ],
+        program.programId
+      );
 
-        let mintAuthorityPDA: PublicKey;
-        let userNftAta: PublicKey;
+      await program.methods
+        .addCheckinOperator(EVENT_ID, checkinOperator.publicKey)
+        .accounts({
+          event: eventPda,
+          checkinAuthority: checkinAuthorityPda,
+          organizer: organizer.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([organizer])
+        .rpc();
 
-        before(async () => {
-            [eventPDA] = PublicKey.findProgramAddressSync(
-                [Buffer.from("EVENT"), Buffer.from(eventId)],
-                program.programId
-            );
-            [seatAccountPDA] = PublicKey.findProgramAddressSync(
-                [Buffer.from("TICKET"), Buffer.from(ticketId), eventPDA.toBuffer()],
-                program.programId
-            );
-            [mintAuthorityPDA] = PublicKey.findProgramAddressSync(
-                [Buffer.from("MINT_AUTH")],
-                program.programId
-            );
+      const auth = await program.account.checkInAuthority.fetch(checkinAuthorityPda);
+      assert.equal(auth.operator.toString(), checkinOperator.publicKey.toString());
+      assert.equal(auth.isActive, true);
+    });
+  });
 
-            // Get user NFT ATA
-            userNftAta = await getAssociatedTokenAddress(
-                ticketMint.publicKey,
-                user.publicKey,
-                false,
-                TOKEN_2022_PROGRAM_ID,
-                ASSOCIATED_TOKEN_PROGRAM_ID
-            );
+  describe("Ticket Management", () => {
+    it("Creates ticket type", async () => {
+      await program.methods
+        .createTicketType(
+          EVENT_ID,
+          TICKET_TYPE_ID,
+          "VIP Tier",
+          new BN(TICKET_PRICE),
+          100, // total supply
+          0xff0000 // red color
+        )
+        .accounts({
+          event: eventPda,
+          ticketType: ticketTypePda,
+          organizer: organizer.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([organizer])
+        .rpc();
 
-            console.log("userNftAta (Wallet):", userNftAta.toBase58());
-        });
-
-        it("Mints ticket NFT successfully", async () => {
-
-            const tx = await program.methods
-                .mintTicket(
-                    ticketId,
-                    eventId,
-                    seatNumber
-                )
-                .accounts({
-                    user: user.publicKey,
-                    platformAuthority: platformAuthority,
-                    ticketMint: ticketMint.publicKey,
-                    userNftAta: userNftAta,
-                    mintAuthority: mintAuthorityPDA,
-                    seatAccount: seatAccountPDA,
-                    event: eventPDA,
-                    platformConfig: platformConfigPDA,
-                    tokenProgram: TOKEN_2022_PROGRAM_ID,
-                    systemProgram: SystemProgram.programId,
-                    associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
-                    rent: SYSVAR_RENT_PUBKEY,
-                })
-                .signers([user, provider.wallet.payer, ticketMint])
-                .rpc();
-
-            console.log("✅ Ticket minted successfully:", tx);
-
-            // Verify seat account was updated
-            const seatAccount = await program.account.seatStatus.fetch(seatAccountPDA);
-            assert.isTrue(seatAccount.isMinted);
-            assert.isFalse(seatAccount.isScanned);
-        });
-
-        it("Fails when ticket already minted", async () => {
-            try {
-                const newTicketMint = Keypair.generate();
-                const newUserNftAta = await getAssociatedTokenAddress(
-                    newTicketMint.publicKey,
-                    user.publicKey,
-                    false,
-                    TOKEN_2022_PROGRAM_ID
-                );
-
-                await program.methods
-                    .mintTicket(
-                        ticketId, // same ticket ID
-                        eventId,
-                        "A-102" // different seat
-                    )
-                    .accounts({
-                        user: user.publicKey,
-                        platformAuthority: platformAuthority,
-                        ticketMint: newTicketMint.publicKey,
-                        userNftAta: newUserNftAta,
-                        mintAuthority: mintAuthorityPDA,
-                        seatAccount: seatAccountPDA, // same seat account
-                        event: eventPDA,
-                        platformConfig: platformConfigPDA,
-                        tokenProgram: TOKEN_2022_PROGRAM_ID,
-                        systemProgram: SystemProgram.programId,
-                        associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
-                        rent: SYSVAR_RENT_PUBKEY,
-                    })
-                    .signers([user, provider.wallet.payer, newTicketMint])
-                    .rpc();
-                assert.fail("Should fail with already minted ticket");
-            } catch (error: any) {
-                console.log("Error:", error.toString());
-                if (error.error?.errorCode?.code === "TicketAlreadyMinted") {
-                    console.log("✅ Correctly failed with TicketAlreadyMinted");
-                } else {
-                    console.log("Got different error:", error.error?.errorCode?.code);
-                }
-            }
-        });
-
-        it("Fails with invalid event ID", async () => {
-            const newTicketId = "new-ticket-001";
-            const [newSeatAccountPDA] = PublicKey.findProgramAddressSync(
-                [Buffer.from("TICKET"), Buffer.from(newTicketId), eventPDA.toBuffer()],
-                program.programId
-            );
-            const newTicketMint = Keypair.generate();
-            const newUserNftAta = await getAssociatedTokenAddress(
-                newTicketMint.publicKey,
-                user.publicKey,
-                false,
-                TOKEN_2022_PROGRAM_ID
-            );
-
-            try {
-                await program.methods
-                    .mintTicket(
-                        newTicketId,
-                        "wrong-event-id", // wrong event ID
-                        "A-103"
-                    )
-                    .accounts({
-                        user: user.publicKey,
-                        platformAuthority: platformAuthority,
-                        ticketMint: newTicketMint.publicKey,
-                        userNftAta: newUserNftAta,
-                        mintAuthority: mintAuthorityPDA,
-                        seatAccount: newSeatAccountPDA,
-                        event: eventPDA, // correct event PDA but wrong ID
-                        platformConfig: platformConfigPDA,
-                        tokenProgram: TOKEN_2022_PROGRAM_ID,
-                        systemProgram: SystemProgram.programId,
-                        associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
-                        rent: SYSVAR_RENT_PUBKEY,
-                    })
-                    .signers([user, newTicketMint])
-                    .rpc();
-                assert.fail("Should fail with invalid event ID");
-            } catch (error: any) {
-                console.log("Error:", error.toString());
-                if (error.error?.errorCode?.code === "InvalidEventId") {
-                    console.log("✅ Correctly failed with InvalidEventId");
-                } else {
-                    console.log("Got different error:", error.error?.errorCode?.code);
-                }
-                // assert.include(error.message, "InvalidEventId");
-            }
-        });
+      const ticketType = await program.account.ticketTypeAccount.fetch(ticketTypePda);
+      assert.equal(ticketType.eventId, EVENT_ID);
+      assert.equal(ticketType.typeId, TICKET_TYPE_ID);
+      assert.equal(ticketType.price.toNumber(), TICKET_PRICE);
+      assert.equal(ticketType.totalSupply, 100);
+      assert.equal(ticketType.minted, 0);
     });
 
-    describe("ScanTicket", () => {
-        let eventPDA: PublicKey;
-        let seatAccountPDA: PublicKey;
+    it("Batch mints tickets (increases supply)", async () => {
+      await program.methods
+        .batchMintTickets(EVENT_ID, TICKET_TYPE_ID, 50)
+        .accounts({
+          event: eventPda,
+          ticketType: ticketTypePda,
+          organizer: organizer.publicKey,
+        })
+        .signers([organizer])
+        .rpc();
 
-        before(async () => {
-            [eventPDA] = PublicKey.findProgramAddressSync(
-                [Buffer.from("EVENT"), Buffer.from(eventId)],
-                program.programId
-            );
-            [seatAccountPDA] = PublicKey.findProgramAddressSync(
-                [Buffer.from("TICKET"), Buffer.from(ticketId), eventPDA.toBuffer()],
-                program.programId
-            );
-        });
+      const ticketType = await program.account.ticketTypeAccount.fetch(ticketTypePda);
+      assert.equal(ticketType.totalSupply, 150);
+    });
+  });
 
-        it("Scans ticket successfully", async () => {
-            const tx = await program.methods
-                .scanTicket(ticketId, eventId)
-                .accounts({
-                    merchant: merchant.publicKey,
-                    seatAccount: seatAccountPDA,
-                    event: eventPDA,
-                    ticketMint: ticketMint.publicKey,
-                })
-                .signers([merchant])
-                .rpc();
+  describe("Purchase Flow", () => {
+    it("Purchases a ticket with backend authorization", async () => {
+      const nonce = Date.now();
+      const validUntil = Math.floor(Date.now() / 1000) + 300; // 5 minutes
 
-            console.log("✅ Ticket scanned successfully:", tx);
+      const authData = {
+        buyer: buyer.publicKey,
+        ticketTypeId: TICKET_TYPE_ID,
+        maxPrice: new BN(TICKET_PRICE),
+        validUntil: new BN(validUntil),
+        nonce: new BN(nonce),
+      };
 
-            // Verify seat account was updated
-            const seatAccount = await program.account.seatStatus.fetch(seatAccountPDA);
-            assert.isTrue(seatAccount.isMinted);
-            assert.isTrue(seatAccount.isScanned);
-        });
+      // Mock signature (in production, backend would sign this)
+      const signature = new Array(64).fill(0);
 
-        it("Fails to scan with wrong merchant", async () => {
-            try {
-                await program.methods
-                    .scanTicket(ticketId, eventId)
-                    .accounts({
-                        merchant: user.publicKey, // wrong merchant
-                        seatAccount: seatAccountPDA,
-                        event: eventPDA,
-                    })
-                    .signers([user])
-                    .rpc();
-                assert.fail("Should fail with wrong merchant");
-            } catch (error: any) {
-                assert.include(error.message, "InvalidMerchantAuthority");
-            }
-        });
+      [ticketPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("ticket"),
+          Buffer.from(EVENT_ID),
+          Buffer.from([1, 0, 0, 0]), // sequence 1 (little-endian u32)
+        ],
+        program.programId
+      );
 
-        it("Fails to scan already scanned ticket", async () => {
-            try {
-                await program.methods
-                    .scanTicket(ticketId, eventId)
-                    .accounts({
-                        merchant: merchant.publicKey,
-                        seatAccount: seatAccountPDA,
-                        event: eventPDA,
-                    })
-                    .signers([merchant])
-                    .rpc();
-                assert.fail("Should fail with already scanned ticket");
-            } catch (error: any) {
-                assert.include(error.message, "TicketAlreadyScanned");
-            }
-        });
+      const buyerBalanceBefore = (
+        await getAccount(provider.connection, buyerUsdcAccount)
+      ).amount;
+      const organizerBalanceBefore = (
+        await getAccount(provider.connection, organizerUsdcAccount)
+      ).amount;
+
+      await program.methods
+        .purchaseTicket(EVENT_ID, TICKET_TYPE_ID, authData, signature)
+        .accounts({
+          platformConfig,
+          event: eventPda,
+          ticketType: ticketTypePda,
+          ticket: ticketPda,
+          nonceTracker,
+          buyer: buyer.publicKey,
+          buyerUsdcAccount,
+          platformUsdcAccount,
+          organizerUsdcAccount,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([buyer])
+        .rpc();
+
+      // Verify ticket created
+      const ticket = await program.account.ticketAccount.fetch(ticketPda);
+      assert.equal(ticket.eventId, EVENT_ID);
+      assert.equal(ticket.owner.toString(), buyer.publicKey.toString());
+      assert.equal(ticket.sequenceNumber, 1);
+      assert.equal(ticket.isCheckedIn, false);
+
+      // Verify USDC transfers
+      const buyerBalanceAfter = (
+        await getAccount(provider.connection, buyerUsdcAccount)
+      ).amount;
+      const organizerBalanceAfter = (
+        await getAccount(provider.connection, organizerUsdcAccount)
+      ).amount;
+
+      const config = await program.account.platformConfig.fetch(platformConfig);
+      const platformFee = config.feeAmountUsdc.toNumber();
+
+      assert.equal(
+        Number(buyerBalanceBefore - buyerBalanceAfter),
+        TICKET_PRICE
+      );
+      assert.equal(
+        Number(organizerBalanceAfter - organizerBalanceBefore),
+        TICKET_PRICE - platformFee
+      );
+
+      // Verify ticket type minted count
+      const ticketType = await program.account.ticketTypeAccount.fetch(ticketTypePda);
+      assert.equal(ticketType.minted, 1);
     });
 
-    describe("UpdateSeatNumber", () => {
-        let eventPDA: PublicKey;
-        let seatAccountPDA: PublicKey;
-        let ticketMint: Keypair;
-        let mintAuthorityPDA: PublicKey;
+    it("Purchases ticket with PoF (optional)", async () => {
+      if (!USE_POF) {
+        console.log("  ⏭  Skipping PoF test");
+        return;
+      }
 
-        before(async () => {
-            [eventPDA] = PublicKey.findProgramAddressSync(
-                [Buffer.from("EVENT"), Buffer.from(eventId)],
-                program.programId
-            );
+      const nonce = Date.now() + 1;
+      const validUntil = Math.floor(Date.now() / 1000) + 300;
+      const authData = {
+        buyer: buyer.publicKey,
+        ticketTypeId: TICKET_TYPE_ID,
+        maxPrice: new BN(TICKET_PRICE),
+        validUntil: new BN(validUntil),
+        nonce: new BN(nonce),
+      };
+      const signature = new Array(64).fill(0);
 
-            const newTicketId = "ticket-update-seat";
-            [seatAccountPDA] = PublicKey.findProgramAddressSync(
-                [Buffer.from("TICKET"), Buffer.from(newTicketId), eventPDA.toBuffer()],
-                program.programId
-            );
-            [mintAuthorityPDA] = PublicKey.findProgramAddressSync(
-                [Buffer.from("MINT_AUTH")],
-                program.programId
-            );
+      const [ticket2Pda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("ticket"), Buffer.from(EVENT_ID), Buffer.from([2, 0, 0, 0])],
+        program.programId
+      );
 
-            ticketMint = Keypair.generate();
-        });
+      await program.methods
+        .purchaseTicket(EVENT_ID, TICKET_TYPE_ID, authData, signature)
+        .accounts({
+          platformConfig, event: eventPda, ticketType: ticketTypePda,
+          ticket: ticket2Pda, nonceTracker,
+          buyer: buyer.publicKey, buyerUsdcAccount,
+          platformUsdcAccount, organizerUsdcAccount,
+          tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId,
+        })
+        .remainingAccounts([
+          { pubkey: getPofWalletPda(buyer.publicKey), isWritable: true, isSigner: false },
+          { pubkey: getPofGlobalStatePda(), isWritable: false, isSigner: false },
+          { pubkey: POF_PROGRAM_ID, isWritable: false, isSigner: false },
+        ])
+        .signers([buyer])
+        .rpc();
 
-        it("Updates seat number successfully", async () => {
-            // First mint a ticket
-            const userNftAta = await getAssociatedTokenAddress(
-                ticketMint.publicKey,
-                user.publicKey,
-                false,
-                TOKEN_2022_PROGRAM_ID
-            );
+      console.log("  ✓ PoF integration OK");
+    });
+  });
 
-            await program.methods
-                .mintTicket(
-                    "ticket-update-seat",
-                    eventId,
-                    "B-201"
-                )
-                .accounts({
-                    user: user.publicKey,
-                    platformAuthority: platformAuthority,
-                    ticketMint: ticketMint.publicKey,
-                    userNftAta: userNftAta,
-                    mintAuthority: mintAuthorityPDA,
-                    seatAccount: seatAccountPDA,
-                    event: eventPDA,
-                    platformConfig: platformConfigPDA,
-                    tokenProgram: TOKEN_2022_PROGRAM_ID,
-                    systemProgram: SystemProgram.programId,
-                    associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
-                    rent: SYSVAR_RENT_PUBKEY,
-                })
-                .signers([user, ticketMint])
-                .rpc();
+  describe("Marketplace", () => {
+    const RESALE_PRICE = 60_000_000; // 60 USDC
 
-            // Then update seat number
-            const tx = await program.methods
-                .updateSeatNumber(
-                    "ticket-update-seat",
-                    eventId,
-                    "B-202" // new seat number
-                )
-                .accounts({
-                    merchant: merchant.publicKey,
-                    mint: ticketMint.publicKey,
-                    mintAuthority: mintAuthorityPDA,
-                    seatAccount: seatAccountPDA,
-                    event: eventPDA,
-                    tokenProgram: TOKEN_2022_PROGRAM_ID,
-                })
-                .signers([merchant])
-                .rpc();
+    it("Lists ticket for resale", async () => {
+      [listingPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("listing"), ticketPda.toBuffer()],
+        program.programId
+      );
 
-            console.log("✅ Seat number updated successfully:", tx);
-        });
+      await program.methods
+        .listTicket(new BN(RESALE_PRICE))
+        .accounts({
+          event: eventPda,
+          ticket: ticketPda,
+          listing: listingPda,
+          seller: buyer.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([buyer])
+        .rpc();
+
+      const listing = await program.account.listingAccount.fetch(listingPda);
+      assert.equal(listing.seller.toString(), buyer.publicKey.toString());
+      assert.equal(listing.price.toNumber(), RESALE_PRICE);
+      assert.equal(listing.isActive, true);
     });
 
-    describe("Input Validation", () => {
-        it("Rejects oversized ticket ID", async () => {
-            const longId = "a".repeat(33); // exceeds MAX_TICKET_ID_LENGTH
-            try {
-                await program.methods
-                    .scanTicket(longId, eventId)
-                    .accounts({
-                        merchant: merchant.publicKey,
-                        seatAccount: Keypair.generate().publicKey,
-                        event: Keypair.generate().publicKey,
-                    })
-                    .signers([merchant])
-                    .rpc();
-                assert.fail("Should reject oversized ticket ID");
-            } catch (error: any) {
-                assert.include(error.message, "TicketIdTooLong");
-            }
-        });
+    it("Buys listed ticket", async () => {
+      const buyer2BalanceBefore = (
+        await getAccount(provider.connection, buyer2UsdcAccount)
+      ).amount;
+      const buyerBalanceBefore = (
+        await getAccount(provider.connection, buyerUsdcAccount)
+      ).amount;
 
-        it("Rejects oversized event ID", async () => {
-            const longId = "a".repeat(33);
-            try {
-                await program.methods
-                    .createEvent(
-                        longId,
-                        "https://valid.com",
-                        merchant.publicKey,
-                        "Valid Name",
-                        "SYM",
-                        new anchor.BN(Date.now() + 86400)
-                    )
-                    .accounts({
-                        payer: provider.wallet.publicKey,
-                        event: Keypair.generate().publicKey,
-                        platformConfig: platformConfigPDA,
-                        platformAuthority: platformAuthority,
-                        systemProgram: SystemProgram.programId,
-                    })
-                    .rpc();
-                assert.fail("Should reject oversized event ID");
-            } catch (error: any) {
-                assert.include(error.message, "EventIdTooLong");
-            }
-        });
+      await program.methods
+        .buyListedTicket()
+        .accounts({
+          platformConfig,
+          event: eventPda,
+          listing: listingPda,
+          ticket: ticketPda,
+          buyer: buyer2.publicKey,
+          seller: buyer.publicKey,
+          buyerUsdcAccount: buyer2UsdcAccount,
+          sellerUsdcAccount: buyerUsdcAccount,
+          platformUsdcAccount,
+          organizerUsdcAccount,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .signers([buyer2])
+        .rpc();
+
+      // Verify ownership transfer
+      const ticket = await program.account.ticketAccount.fetch(ticketPda);
+      assert.equal(ticket.owner.toString(), buyer2.publicKey.toString());
+      assert.equal(ticket.resaleCount, 1);
+
+      // Verify listing closed
+      try {
+        await program.account.listingAccount.fetch(listingPda);
+        assert.fail("Listing should be closed");
+      } catch (e) {
+        // Expected - account should be closed
+      }
+
+      // Verify USDC transfers
+      const buyer2BalanceAfter = (
+        await getAccount(provider.connection, buyer2UsdcAccount)
+      ).amount;
+      const buyerBalanceAfter = (
+        await getAccount(provider.connection, buyerUsdcAccount)
+      ).amount;
+
+      assert.equal(
+        Number(buyer2BalanceBefore - buyer2BalanceAfter),
+        RESALE_PRICE
+      );
+      assert.isTrue(Number(buyerBalanceAfter) > Number(buyerBalanceBefore));
     });
 
-    describe("Direct Account Query", () => {
-        let eventPDA: PublicKey;
-        let seatAccountPDA: PublicKey;
-        let existingTicketId = "ticket-001";
+    it("Buys listed ticket with PoF (optional)", async () => {
+      if (!USE_POF) {
+        console.log("  ⏭  Skipping PoF test");
+        return;
+      }
 
-        before(async () => {
-            [eventPDA] = PublicKey.findProgramAddressSync(
-                [Buffer.from("EVENT"), Buffer.from(eventId)],
-                program.programId
-            );
-            [seatAccountPDA] = PublicKey.findProgramAddressSync(
-                [Buffer.from("TICKET"), Buffer.from(existingTicketId), eventPDA.toBuffer()],
-                program.programId
-            );
-        });
+      // Create a new listing (buyer2 is current owner after previous test)
+      const [newListingPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("listing"), ticketPda.toBuffer()],
+        program.programId
+      );
 
-        it("Successfully queries existing ticket status", async () => {
-            const ticketMint = Keypair.generate();
-            const mintAuthorityPDA = PublicKey.findProgramAddressSync(
-                [Buffer.from("MINT_AUTH")],
-                program.programId
-            )[0];
-            const userNftAta = await getAssociatedTokenAddress(
-                ticketMint.publicKey,
-                user.publicKey,
-                false,
-                TOKEN_2022_PROGRAM_ID
-            );
+      await program.methods
+        .listTicket(new BN(RESALE_PRICE))
+        .accounts({
+          event: eventPda, ticket: ticketPda, listing: newListingPda,
+          seller: buyer2.publicKey, systemProgram: SystemProgram.programId,
+        })
+        .signers([buyer2])
+        .rpc();
 
-            await program.methods
-                .mintTicket(existingTicketId, eventId, "QUERY-TEST-SEAT")
-                .accounts({
-                    user: user.publicKey,
-                    platformAuthority: platformAuthority,
-                    ticketMint: ticketMint.publicKey,
-                    userNftAta: userNftAta,
-                    mintAuthority: mintAuthorityPDA,
-                    seatAccount: seatAccountPDA,
-                    event: eventPDA,
-                    platformConfig: platformConfigPDA,
-                    tokenProgram: TOKEN_2022_PROGRAM_ID,
-                    systemProgram: SystemProgram.programId,
-                    associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
-                    rent: SYSVAR_RENT_PUBKEY,
-                })
-                .signers([user, ticketMint])
-                .rpc();
+      // Buy with PoF integration
+      await program.methods
+        .buyListedTicket()
+        .accounts({
+          platformConfig, event: eventPda, listing: newListingPda,
+          ticket: ticketPda, buyer: buyer.publicKey, seller: buyer2.publicKey,
+          buyerUsdcAccount, sellerUsdcAccount: buyer2UsdcAccount,
+          platformUsdcAccount, organizerUsdcAccount,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .remainingAccounts([
+          { pubkey: getPofWalletPda(buyer2.publicKey), isWritable: true, isSigner: false }, // seller
+          { pubkey: getPofWalletPda(buyer.publicKey), isWritable: true, isSigner: false },  // buyer
+          { pubkey: getPofGlobalStatePda(), isWritable: false, isSigner: false },
+          { pubkey: POF_PROGRAM_ID, isWritable: false, isSigner: false },
+        ])
+        .signers([buyer])
+        .rpc();
 
-            const seatAccount = await program.account.seatStatus.fetch(seatAccountPDA);
-            console.log("✅ Direct query successful:", {
-                isMinted: seatAccount.isMinted,
-                isScanned: seatAccount.isScanned,
-                bump: seatAccount.bump
-            });
-
-            assert.isTrue(seatAccount.isMinted);
-            assert.isFalse(seatAccount.isScanned);
-            assert.isNumber(seatAccount.bump);
-        });
-
-        it("Handles non-existent ticket gracefully", async () => {
-            const nonExistentTicketId = "non-existent-ticket-999";
-            const [nonExistentSeatPDA] = PublicKey.findProgramAddressSync(
-                [Buffer.from("TICKET"), Buffer.from(nonExistentTicketId), eventPDA.toBuffer()],
-                program.programId
-            );
-
-            try {
-                await program.account.seatStatus.fetch(nonExistentSeatPDA);
-                assert.fail("Should not find non-existent account");
-            } catch (error: any) {
-                assert.include(error.message, "Account does not exist");
-                console.log("✅ Correctly handled non-existent ticket");
-            }
-        });
-
-        it("Queries event information directly", async () => {
-            const event = await program.account.events.fetch(eventPDA);
-            console.log("✅ Event query successful:", {
-                eventId: event.eventId,
-                name: event.name,
-                symbol: event.symbol,
-                merchantKey: event.merchantKey.toBase58(),
-                uri: event.uri
-            });
-
-            assert.equal(event.eventId, eventId);
-            assert.equal(event.merchantKey.toBase58(), merchant.publicKey.toBase58());
-        });
-
-        it("Queries platform config directly", async () => {
-            const platformConfig = await program.account.platformConfig.fetch(platformConfigPDA);
-            console.log("✅ Platform config query successful:", {
-                platformAuthority: platformConfig.platformAuthority.toBase58(),
-                bump: platformConfig.bump
-            });
-
-            assert.equal(platformConfig.platformAuthority.toBase58(), platformAuthority.toBase58());
-            assert.isNumber(platformConfig.bump);
-        });
+      console.log("  ✓ PoF resale integration OK");
     });
+
+    it("Cancels listing", async () => {
+      // Create another listing first
+      const [newListingPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("listing"), ticketPda.toBuffer()],
+        program.programId
+      );
+
+      await program.methods
+        .listTicket(new BN(RESALE_PRICE))
+        .accounts({
+          event: eventPda,
+          ticket: ticketPda,
+          listing: newListingPda,
+          seller: buyer2.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([buyer2])
+        .rpc();
+
+      // Cancel it
+      await program.methods
+        .cancelListing()
+        .accounts({
+          listing: newListingPda,
+          seller: buyer2.publicKey,
+        })
+        .signers([buyer2])
+        .rpc();
+
+      // Verify listing closed
+      try {
+        await program.account.listingAccount.fetch(newListingPda);
+        assert.fail("Listing should be closed");
+      } catch (e) {
+        // Expected
+      }
+    });
+  });
+
+  describe("Check-in Flow", () => {
+    it("Checks in a ticket", async () => {
+      await program.methods
+        .checkInTicket(EVENT_ID)
+        .accounts({
+          event: eventPda,
+          checkinAuthority: checkinAuthorityPda,
+          ticket: ticketPda,
+          operator: checkinOperator.publicKey,
+        })
+        .signers([checkinOperator])
+        .rpc();
+
+      const ticket = await program.account.ticketAccount.fetch(ticketPda);
+      assert.equal(ticket.isCheckedIn, true);
+    });
+
+    it("Checks in with PoF (optional)", async () => {
+      if (!USE_POF) {
+        console.log("  ⏭  Skipping PoF test");
+        return;
+      }
+
+      // Buy a new ticket first (for PoF test)
+      const nonce = Date.now() + 999;
+      const validUntil = Math.floor(Date.now() / 1000) + 300;
+      const authData = {
+        buyer: buyer2.publicKey,
+        ticketTypeId: TICKET_TYPE_ID,
+        maxPrice: new BN(TICKET_PRICE),
+        validUntil: new BN(validUntil),
+        nonce: new BN(nonce),
+      };
+      const signature = new Array(64).fill(0);
+
+      const ticketType = await program.account.ticketTypeAccount.fetch(ticketTypePda);
+      const nextSeq = ticketType.minted + 1;
+      const [newTicketPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("ticket"), Buffer.from(EVENT_ID), new BN(nextSeq).toArrayLike(Buffer, 'le', 4)],
+        program.programId
+      );
+
+      await program.methods
+        .purchaseTicket(EVENT_ID, TICKET_TYPE_ID, authData, signature)
+        .accounts({
+          platformConfig, event: eventPda, ticketType: ticketTypePda,
+          ticket: newTicketPda, nonceTracker,
+          buyer: buyer2.publicKey, buyerUsdcAccount: buyer2UsdcAccount,
+          platformUsdcAccount, organizerUsdcAccount,
+          tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId,
+        })
+        .signers([buyer2])
+        .rpc();
+
+      // Check-in with PoF
+      await program.methods
+        .checkInTicket(EVENT_ID)
+        .accounts({
+          event: eventPda, checkinAuthority: checkinAuthorityPda,
+          ticket: newTicketPda, operator: checkinOperator.publicKey,
+        })
+        .remainingAccounts([
+          { pubkey: getPofWalletPda(buyer2.publicKey), isWritable: true, isSigner: false },
+          { pubkey: getPofGlobalStatePda(), isWritable: false, isSigner: false },
+          { pubkey: POF_PROGRAM_ID, isWritable: false, isSigner: false },
+        ])
+        .signers([checkinOperator])
+        .rpc();
+
+      console.log("  ✓ PoF check-in integration OK");
+    });
+
+    it("Fails to check in already checked ticket", async () => {
+      try {
+        await program.methods
+          .checkInTicket(EVENT_ID)
+          .accounts({
+            event: eventPda,
+            checkinAuthority: checkinAuthorityPda,
+            ticket: ticketPda,
+            operator: checkinOperator.publicKey,
+          })
+          .signers([checkinOperator])
+          .rpc();
+        assert.fail("Should not check in already checked ticket");
+      } catch (e) {
+        assert.include(e.toString(), "AlreadyCheckedIn");
+      }
+    });
+  });
 });
