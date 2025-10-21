@@ -14,6 +14,9 @@ pub struct PlatformConfig {
     /// Backend signing authority
     pub backend_authority: Pubkey,
     
+    /// Event admin (only this address can create events)
+    pub event_admin: Pubkey,
+    
     /// Platform pause status
     pub is_paused: bool,
     
@@ -23,8 +26,17 @@ pub struct PlatformConfig {
 
 impl PlatformConfig {
     pub const SEED_PREFIX: &'static [u8] = b"platform_config";
+    pub const PROGRAM_AUTHORITY_SEED: &'static [u8] = b"program_authority";
     
-    // 32 + 8 + 32 + 32 + 1 + 1 = 106 bytes
-    pub const SIZE: usize = 8 + 106;
+    // 32 + 8 + 32 + 32 + 32 + 1 + 1 = 138 bytes
+    pub const SIZE: usize = 8 + 138;
+    
+    /// Derive program authority PDA for holding listed tickets
+    pub fn derive_program_authority(program_id: &Pubkey) -> (Pubkey, u8) {
+        Pubkey::find_program_address(
+            &[Self::PROGRAM_AUTHORITY_SEED],
+            program_id
+        )
+    }
 }
 

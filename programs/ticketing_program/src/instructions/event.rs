@@ -7,6 +7,12 @@ use crate::errors::ErrorCode;
 #[instruction(event_id: String)]
 pub struct CreateEvent<'info> {
     #[account(
+        seeds = [PlatformConfig::SEED_PREFIX],
+        bump = platform_config.bump
+    )]
+    pub platform_config: Account<'info, PlatformConfig>,
+    
+    #[account(
         init,
         payer = organizer,
         space = EventAccount::SIZE,
@@ -15,7 +21,10 @@ pub struct CreateEvent<'info> {
     )]
     pub event: Account<'info, EventAccount>,
     
-    #[account(mut)]
+    #[account(
+        mut,
+        constraint = organizer.key() == platform_config.event_admin @ ErrorCode::Unauthorized
+    )]
     pub organizer: Signer<'info>,
     
     pub system_program: Program<'info, System>,

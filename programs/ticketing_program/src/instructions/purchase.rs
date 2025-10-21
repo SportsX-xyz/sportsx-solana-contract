@@ -11,6 +11,9 @@ pub struct AuthorizationData {
     pub max_price: u64,
     pub valid_until: i64,
     pub nonce: u64,
+    pub ticket_pda: Option<Pubkey>,  // For resale: the ticket being purchased
+    pub row_number: u16,     // Seat row number (0 for general admission)
+    pub column_number: u16,  // Seat column number (0 for general admission)
 }
 
 /// Purchase a ticket
@@ -91,38 +94,48 @@ pub fn purchase_ticket<'info>(
     let clock = Clock::get()?;
     let current_time = clock.unix_timestamp;
     
-    // 1. Verify backend signature
+    // 1. Verify this is a first-time purchase (not resale)
+    require!(
+        authorization_data.ticket_pda.is_none(),
+        ErrorCode::InvalidTicketPda
+    );
+    
+    // 2. Verify backend signature
     verify_backend_signature(
         &ctx.accounts.platform_config.backend_authority,
         &authorization_data,
         &backend_signature,
     )?;
     
-    // 2. Check authorization expiry
+    // 3. Check authorization expiry
     require!(
         current_time <= authorization_data.valid_until,
         ErrorCode::AuthorizationExpired
     );
     
-    // 3. Check nonce
+    // 4. Check nonce+buyer combination (with time-based expiration)
     require!(
-        !ctx.accounts.nonce_tracker.is_nonce_used(authorization_data.nonce),
+        !ctx.accounts.nonce_tracker.is_nonce_used(
+            authorization_data.nonce,
+            &ctx.accounts.buyer.key(),
+            current_time
+        ),
         ErrorCode::NonceAlreadyUsed
     );
     
-    // 4. Verify buyer matches
+    // 5. Verify buyer matches
     require!(
         authorization_data.buyer == ctx.accounts.buyer.key(),
         ErrorCode::Unauthorized
     );
     
-    // 5. Check price
+    // 6. Check price
     require!(
         ctx.accounts.ticket_type.price <= authorization_data.max_price,
         ErrorCode::PriceMismatch
     );
     
-    // 6. Check sales time
+    // 7. Check sales time
     require!(
         ctx.accounts.event.can_sell_tickets(current_time),
         ErrorCode::SalesEnded
@@ -131,7 +144,7 @@ pub fn purchase_ticket<'info>(
     let ticket_price = ctx.accounts.ticket_type.price;
     let platform_fee = ctx.accounts.platform_config.fee_amount_usdc;
     
-    // 7. Transfer platform fee
+    // 8. Transfer platform fee
     let transfer_platform_fee_ctx = CpiContext::new(
         ctx.accounts.token_program.to_account_info(),
         Transfer {
@@ -142,7 +155,7 @@ pub fn purchase_ticket<'info>(
     );
     token::transfer(transfer_platform_fee_ctx, platform_fee)?;
     
-    // 8. Transfer ticket price to organizer
+    // 9. Transfer ticket price to organizer
     let organizer_amount = ticket_price
         .checked_sub(platform_fee)
         .ok_or(ErrorCode::ArithmeticOverflow)?;
@@ -157,12 +170,12 @@ pub fn purchase_ticket<'info>(
     );
     token::transfer(transfer_organizer_ctx, organizer_amount)?;
     
-    // 9. Update ticket type
+    // 10. Update ticket type
     ctx.accounts.ticket_type.minted = ctx.accounts.ticket_type.minted
         .checked_add(1)
         .ok_or(ErrorCode::ArithmeticOverflow)?;
     
-    // 10. Create ticket
+    // 11. Create ticket
     let ticket = &mut ctx.accounts.ticket;
     ticket.event_id = event_id;
     ticket.ticket_type_id = type_id;
@@ -171,15 +184,19 @@ pub fn purchase_ticket<'info>(
     ticket.original_owner = ctx.accounts.buyer.key();
     ticket.resale_count = 0;
     ticket.is_checked_in = false;
-    ticket.row_number = 0;
-    ticket.column_number = 0;
+    ticket.row_number = authorization_data.row_number;
+    ticket.column_number = authorization_data.column_number;
     ticket.original_price = ticket_price;
     ticket.bump = ctx.bumps.ticket;
     
-    // 11. Mark nonce as used
-    ctx.accounts.nonce_tracker.mark_nonce_used(authorization_data.nonce);
+    // 12. Mark nonce+buyer as used (with timestamp for expiration tracking)
+    ctx.accounts.nonce_tracker.mark_nonce_used(
+        authorization_data.nonce,
+        ctx.accounts.buyer.key(),
+        current_time
+    );
     
-    // 12. CPI to PoF program to add purchase points
+    // 13. CPI to PoF program to add purchase points
     // Rule: min(50, floor(price_usdc / 10))
     if ctx.remaining_accounts.len() >= 3 {
         let points = crate::instructions::calculate_purchase_points(ticket_price);
@@ -203,7 +220,7 @@ pub fn purchase_ticket<'info>(
 }
 
 /// Verify backend signature using Ed25519
-fn verify_backend_signature(
+pub fn verify_backend_signature(
     backend_authority: &Pubkey,
     authorization_data: &AuthorizationData,
     _signature: &[u8; 64],
@@ -220,6 +237,18 @@ fn verify_backend_signature(
     message.extend_from_slice(&authorization_data.max_price.to_le_bytes());
     message.extend_from_slice(&authorization_data.valid_until.to_le_bytes());
     message.extend_from_slice(&authorization_data.nonce.to_le_bytes());
+    
+    // Serialize optional ticket_pda
+    if let Some(ticket_pda) = &authorization_data.ticket_pda {
+        message.push(1);  // Option::Some discriminator
+        message.extend_from_slice(&ticket_pda.to_bytes());
+    } else {
+        message.push(0);  // Option::None discriminator
+    }
+    
+    // Serialize seat information
+    message.extend_from_slice(&authorization_data.row_number.to_le_bytes());
+    message.extend_from_slice(&authorization_data.column_number.to_le_bytes());
     
     // 2. Verify Ed25519 signature
     // Simplified: Direct verification using ed25519-dalek would require adding dependency

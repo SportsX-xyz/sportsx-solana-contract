@@ -1,35 +1,59 @@
 use anchor_lang::prelude::*;
 
+/// Circular buffer for nonce tracking with time-based expiration
 #[account]
 pub struct NonceTracker {
-    /// Used nonces (for anti-replay protection)
-    /// Note: In production, consider using a bloom filter or bitmap for efficiency
-    pub used_nonces: Vec<u64>,
+    /// Circular buffer of nonces (last 500 entries)
+    pub nonces: [u64; 500],
+    
+    /// Buyer address for each nonce (for collision prevention)
+    pub buyers: [Pubkey; 500],
+    
+    /// Timestamps for each nonce entry
+    pub timestamps: [i64; 500],
+    
+    /// Next index to write (circular)
+    pub next_index: u16,
 }
 
 impl NonceTracker {
     pub const SEED_PREFIX: &'static [u8] = b"nonce_tracker";
+    pub const BUFFER_SIZE: usize = 500;
+    pub const EXPIRY_SECONDS: i64 = 600; // 10 minutes (long after 60s auth expiry)
     
-    // Initial size: 8 (discriminator) + 4 (vec length) + 1000 * 8 (space for ~1000 nonces)
-    pub const SIZE: usize = 8 + 4 + 8000;
+    // Size: 8 (discriminator) + 500*8 (nonces) + 500*32 (buyers) + 500*8 (timestamps) + 2 (index)
+    // = 8 + 4000 + 16000 + 4000 + 2 = 24010 bytes
+    pub const SIZE: usize = 8 + (Self::BUFFER_SIZE * 8) + (Self::BUFFER_SIZE * 32) + (Self::BUFFER_SIZE * 8) + 2;
     
-    pub fn is_nonce_used(&self, nonce: u64) -> bool {
-        self.used_nonces.contains(&nonce)
+    /// Check if nonce+buyer combination is already used
+    pub fn is_nonce_used(&self, nonce: u64, buyer: &Pubkey, current_time: i64) -> bool {
+        for i in 0..Self::BUFFER_SIZE {
+            // Only check non-expired entries
+            if self.timestamps[i] + Self::EXPIRY_SECONDS > current_time {
+                // Check both nonce AND buyer match
+                if self.nonces[i] == nonce && self.buyers[i] == *buyer {
+                    return true; // Already used by this buyer
+                }
+            }
+        }
+        false
     }
     
-    pub fn mark_nonce_used(&mut self, nonce: u64) {
-        if !self.is_nonce_used(nonce) {
-            self.used_nonces.push(nonce);
-        }
+    /// Mark nonce+buyer as used with current timestamp
+    pub fn mark_nonce_used(&mut self, nonce: u64, buyer: Pubkey, current_time: i64) {
+        let idx = (self.next_index as usize) % Self::BUFFER_SIZE;
+        self.nonces[idx] = nonce;
+        self.buyers[idx] = buyer;
+        self.timestamps[idx] = current_time;
+        self.next_index = self.next_index.wrapping_add(1);
     }
     
-    /// Clean up old nonces to prevent unbounded growth
-    /// This should be called periodically or implement a sliding window
-    pub fn cleanup_old_nonces(&mut self, keep_last: usize) {
-        if self.used_nonces.len() > keep_last {
-            let start_index = self.used_nonces.len() - keep_last;
-            self.used_nonces = self.used_nonces[start_index..].to_vec();
-        }
+    /// Get count of valid (non-expired) nonces
+    pub fn count_valid_nonces(&self, current_time: i64) -> usize {
+        self.timestamps
+            .iter()
+            .filter(|&&ts| ts + Self::EXPIRY_SECONDS > current_time)
+            .count()
     }
 }
 

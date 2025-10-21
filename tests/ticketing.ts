@@ -173,7 +173,8 @@ describe("SportsX Ticketing Program", () => {
         .initializePlatform(
           deployer.publicKey,
           new BN(PLATFORM_FEE),
-          backendAuthority.publicKey
+          backendAuthority.publicKey,
+          deployer.publicKey  // event_admin = deployer for testing
         )
         .accounts({
           platformConfig,
@@ -195,7 +196,7 @@ describe("SportsX Ticketing Program", () => {
       const newFee = 150_000; // 0.15 USDC
 
       await program.methods
-        .updatePlatformConfig(null, new BN(newFee), null)
+        .updatePlatformConfig(null, new BN(newFee), null, null)
         .accounts({
           platformConfig,
           authority: deployer.publicKey,
@@ -250,16 +251,16 @@ describe("SportsX Ticketing Program", () => {
           3 // max 3 resales
         )
         .accounts({
+          platformConfig,
           event: eventPda,
-          organizer: organizer.publicKey,
+          organizer: deployer.publicKey,  // deployer is event_admin
           systemProgram: SystemProgram.programId,
         })
-        .signers([organizer])
         .rpc();
 
       const event = await program.account.eventAccount.fetch(eventPda);
       assert.equal(event.eventId, EVENT_ID);
-      assert.equal(event.organizer.toString(), organizer.publicKey.toString());
+      assert.equal(event.organizer.toString(), deployer.publicKey.toString());
       assert.equal(event.status, 1); // Active by default
     });
 
@@ -278,10 +279,9 @@ describe("SportsX Ticketing Program", () => {
         .accounts({
           event: eventPda,
           checkinAuthority: checkinAuthorityPda,
-          organizer: organizer.publicKey,
+          organizer: deployer.publicKey,
           systemProgram: SystemProgram.programId,
         })
-        .signers([organizer])
         .rpc();
 
       const auth = await program.account.checkInAuthority.fetch(checkinAuthorityPda);
@@ -304,10 +304,9 @@ describe("SportsX Ticketing Program", () => {
         .accounts({
           event: eventPda,
           ticketType: ticketTypePda,
-          organizer: organizer.publicKey,
+          organizer: deployer.publicKey,
           systemProgram: SystemProgram.programId,
         })
-        .signers([organizer])
         .rpc();
 
       const ticketType = await program.account.ticketTypeAccount.fetch(ticketTypePda);
@@ -324,9 +323,8 @@ describe("SportsX Ticketing Program", () => {
         .accounts({
           event: eventPda,
           ticketType: ticketTypePda,
-          organizer: organizer.publicKey,
+          organizer: deployer.publicKey,
         })
-        .signers([organizer])
         .rpc();
 
       const ticketType = await program.account.ticketTypeAccount.fetch(ticketTypePda);
@@ -345,6 +343,9 @@ describe("SportsX Ticketing Program", () => {
         maxPrice: new BN(TICKET_PRICE),
         validUntil: new BN(validUntil),
         nonce: new BN(nonce),
+        ticketPda: null,  // First-time purchase
+        rowNumber: 5,
+        columnNumber: 10,
       };
 
       // Mock signature (in production, backend would sign this)
@@ -390,6 +391,8 @@ describe("SportsX Ticketing Program", () => {
       assert.equal(ticket.owner.toString(), buyer.publicKey.toString());
       assert.equal(ticket.sequenceNumber, 1);
       assert.equal(ticket.isCheckedIn, false);
+      assert.equal(ticket.rowNumber, 5);
+      assert.equal(ticket.columnNumber, 10);
 
       // Verify USDC transfers
       const buyerBalanceAfter = (
@@ -430,6 +433,9 @@ describe("SportsX Ticketing Program", () => {
         maxPrice: new BN(TICKET_PRICE),
         validUntil: new BN(validUntil),
         nonce: new BN(nonce),
+        ticketPda: null,  // First-time purchase
+        rowNumber: 6,
+        columnNumber: 11,
       };
       const signature = new Array(64).fill(0);
 
@@ -481,9 +487,17 @@ describe("SportsX Ticketing Program", () => {
         .rpc();
 
       const listing = await program.account.listingAccount.fetch(listingPda);
-      assert.equal(listing.seller.toString(), buyer.publicKey.toString());
+      assert.equal(listing.originalSeller.toString(), buyer.publicKey.toString());
       assert.equal(listing.price.toNumber(), RESALE_PRICE);
       assert.equal(listing.isActive, true);
+      
+      // Verify ticket ownership transferred to program
+      const ticket = await program.account.ticketAccount.fetch(ticketPda);
+      const [programAuthority] = PublicKey.findProgramAddressSync(
+        [Buffer.from("program_authority")],
+        program.programId
+      );
+      assert.equal(ticket.owner.toString(), programAuthority.toString());
     });
 
     it("Buys listed ticket", async () => {
@@ -494,15 +508,31 @@ describe("SportsX Ticketing Program", () => {
         await getAccount(provider.connection, buyerUsdcAccount)
       ).amount;
 
+      // Get backend authorization for resale
+      const nonce = Date.now() + 100;
+      const validUntil = Math.floor(Date.now() / 1000) + 300;
+      const resaleAuthData = {
+        buyer: buyer2.publicKey,
+        ticketTypeId: TICKET_TYPE_ID,
+        maxPrice: new BN(RESALE_PRICE),
+        validUntil: new BN(validUntil),
+        nonce: new BN(nonce),
+        ticketPda: ticketPda,  // Resale: specify ticket PDA
+        rowNumber: 5,  // Same seat as original
+        columnNumber: 10,
+      };
+      const signature = new Array(64).fill(0);
+
       await program.methods
-        .buyListedTicket()
+        .buyListedTicket(resaleAuthData, signature)
         .accounts({
           platformConfig,
           event: eventPda,
           listing: listingPda,
           ticket: ticketPda,
+          nonceTracker,
           buyer: buyer2.publicKey,
-          seller: buyer.publicKey,
+          originalSeller: buyer.publicKey,
           buyerUsdcAccount: buyer2UsdcAccount,
           sellerUsdcAccount: buyerUsdcAccount,
           platformUsdcAccount,
@@ -561,12 +591,27 @@ describe("SportsX Ticketing Program", () => {
         .signers([buyer2])
         .rpc();
 
-      // Buy with PoF integration
+      // Buy with PoF integration and backend authorization
+      const nonce = Date.now() + 200;
+      const validUntil = Math.floor(Date.now() / 1000) + 300;
+      const resaleAuth = {
+        buyer: buyer.publicKey,
+        ticketTypeId: TICKET_TYPE_ID,
+        maxPrice: new BN(RESALE_PRICE),
+        validUntil: new BN(validUntil),
+        nonce: new BN(nonce),
+        ticketPda: ticketPda,  // Resale
+        rowNumber: 5,
+        columnNumber: 10,
+      };
+      const signature = new Array(64).fill(0);
+
       await program.methods
-        .buyListedTicket()
+        .buyListedTicket(resaleAuth, signature)
         .accounts({
           platformConfig, event: eventPda, listing: newListingPda,
-          ticket: ticketPda, buyer: buyer.publicKey, seller: buyer2.publicKey,
+          ticket: ticketPda, nonceTracker,
+          buyer: buyer.publicKey, originalSeller: buyer2.publicKey,
           buyerUsdcAccount, sellerUsdcAccount: buyer2UsdcAccount,
           platformUsdcAccount, organizerUsdcAccount,
           tokenProgram: TOKEN_PROGRAM_ID,
@@ -607,6 +652,7 @@ describe("SportsX Ticketing Program", () => {
         .cancelListing()
         .accounts({
           listing: newListingPda,
+          ticket: ticketPda,
           seller: buyer2.publicKey,
         })
         .signers([buyer2])
@@ -619,6 +665,58 @@ describe("SportsX Ticketing Program", () => {
       } catch (e) {
         // Expected
       }
+      
+      // Verify ticket ownership returned to seller
+      const ticket = await program.account.ticketAccount.fetch(ticketPda);
+      assert.equal(ticket.owner.toString(), buyer2.publicKey.toString());
+    });
+
+    it("Cannot check-in a listed ticket", async () => {
+      // List the ticket again
+      const [testListingPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("listing"), ticketPda.toBuffer()],
+        program.programId
+      );
+
+      await program.methods
+        .listTicket(new BN(RESALE_PRICE))
+        .accounts({
+          event: eventPda,
+          ticket: ticketPda,
+          listing: testListingPda,
+          seller: buyer2.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([buyer2])
+        .rpc();
+
+      // Try to check-in (should fail - owner is program_authority, not user)
+      try {
+        await program.methods
+          .checkInTicket(EVENT_ID)
+          .accounts({
+            event: eventPda,
+            checkinAuthority: checkinAuthorityPda,
+            ticket: ticketPda,
+            operator: checkinOperator.publicKey,
+          })
+          .signers([checkinOperator])
+          .rpc();
+        assert.fail("Should not check in a listed ticket");
+      } catch (e) {
+        // Expected - ticket is owned by program_authority
+      }
+
+      // Cancel listing for cleanup
+      await program.methods
+        .cancelListing()
+        .accounts({
+          listing: testListingPda,
+          ticket: ticketPda,
+          seller: buyer2.publicKey,
+        })
+        .signers([buyer2])
+        .rpc();
     });
   });
 
@@ -654,6 +752,9 @@ describe("SportsX Ticketing Program", () => {
         maxPrice: new BN(TICKET_PRICE),
         validUntil: new BN(validUntil),
         nonce: new BN(nonce),
+        ticketPda: null,  // First-time purchase
+        rowNumber: 7,
+        columnNumber: 12,
       };
       const signature = new Array(64).fill(0);
 

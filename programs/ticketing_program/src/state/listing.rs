@@ -5,8 +5,8 @@ pub struct ListingAccount {
     /// Ticket PDA
     pub ticket_pda: Pubkey,
     
-    /// Seller address
-    pub seller: Pubkey,
+    /// Original seller address (ticket owner when listed)
+    pub original_seller: Pubkey,
     
     /// Listing price in USDC (6 decimals)
     pub price: u64,

@@ -20,12 +20,14 @@ pub mod ticketing_program {
         initial_fee_receiver: Pubkey,
         initial_fee_usdc: u64,
         backend_authority: Pubkey,
+        event_admin: Pubkey,
     ) -> Result<()> {
         instructions::platform::initialize_platform(
             ctx,
             initial_fee_receiver,
             initial_fee_usdc,
             backend_authority,
+            event_admin,
         )
     }
 
@@ -35,12 +37,14 @@ pub mod ticketing_program {
         new_fee_receiver: Option<Pubkey>,
         new_fee_usdc: Option<u64>,
         new_backend_authority: Option<Pubkey>,
+        new_event_admin: Option<Pubkey>,
     ) -> Result<()> {
         instructions::platform::update_platform_config(
             ctx,
             new_fee_receiver,
             new_fee_usdc,
             new_backend_authority,
+            new_event_admin,
         )
     }
 
@@ -171,8 +175,12 @@ pub mod ticketing_program {
     }
 
     /// Buy a listed ticket
-    pub fn buy_listed_ticket<'info>(ctx: Context<'_, '_, '_, 'info, BuyListedTicket<'info>>) -> Result<()> {
-        instructions::marketplace::buy_listed_ticket(ctx)
+    pub fn buy_listed_ticket<'info>(
+        ctx: Context<'_, '_, '_, 'info, BuyListedTicket<'info>>,
+        authorization_data: purchase::AuthorizationData,
+        backend_signature: [u8; 64],
+    ) -> Result<()> {
+        instructions::marketplace::buy_listed_ticket(ctx, authorization_data, backend_signature)
     }
 
     /// Cancel a ticket listing

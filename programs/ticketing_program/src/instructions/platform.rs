@@ -34,6 +34,7 @@ pub fn initialize_platform(
     initial_fee_receiver: Pubkey,
     initial_fee_usdc: u64,
     backend_authority: Pubkey,
+    event_admin: Pubkey,
 ) -> Result<()> {
     let config = &mut ctx.accounts.platform_config;
     
@@ -41,12 +42,13 @@ pub fn initialize_platform(
     config.fee_amount_usdc = initial_fee_usdc;
     config.update_authority = ctx.accounts.deployer.key();
     config.backend_authority = backend_authority;
+    config.event_admin = event_admin;
     config.is_paused = false;
     config.bump = ctx.bumps.platform_config;
     
-    // Initialize nonce tracker
+    // Initialize nonce tracker (arrays default to zeros, which is fine)
     let nonce_tracker = &mut ctx.accounts.nonce_tracker;
-    nonce_tracker.used_nonces = Vec::new();
+    nonce_tracker.next_index = 0;
     
     msg!("Platform initialized with deployer as authority: {}", ctx.accounts.deployer.key());
     
@@ -72,6 +74,7 @@ pub fn update_platform_config(
     new_fee_receiver: Option<Pubkey>,
     new_fee_usdc: Option<u64>,
     new_backend_authority: Option<Pubkey>,
+    new_event_admin: Option<Pubkey>,
 ) -> Result<()> {
     let config = &mut ctx.accounts.platform_config;
     
@@ -88,6 +91,11 @@ pub fn update_platform_config(
     if let Some(backend_auth) = new_backend_authority {
         config.backend_authority = backend_auth;
         msg!("Backend authority updated to: {}", backend_auth);
+    }
+    
+    if let Some(admin) = new_event_admin {
+        config.event_admin = admin;
+        msg!("Event admin updated to: {}", admin);
     }
     
     Ok(())

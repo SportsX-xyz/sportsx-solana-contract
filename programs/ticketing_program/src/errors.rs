@@ -64,5 +64,8 @@ pub enum ErrorCode {
     
     #[msg("Arithmetic overflow")]
     ArithmeticOverflow,
+    
+    #[msg("Invalid ticket PDA in authorization")]
+    InvalidTicketPda,
 }
 

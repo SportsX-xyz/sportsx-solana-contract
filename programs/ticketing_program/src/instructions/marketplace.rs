@@ -47,15 +47,23 @@ pub fn list_ticket(
         ErrorCode::SalesEnded
     );
     
+    // Get program authority PDA
+    let (program_authority, _) = PlatformConfig::derive_program_authority(&crate::ID);
+    
+    // Transfer ticket ownership to program authority
+    let ticket = &mut ctx.accounts.ticket;
+    ticket.owner = program_authority;
+    
+    // Create listing record
     let listing = &mut ctx.accounts.listing;
     listing.ticket_pda = ctx.accounts.ticket.key();
-    listing.seller = ctx.accounts.seller.key();
+    listing.original_seller = ctx.accounts.seller.key();
     listing.price = resale_price;
     listing.listed_at = current_time;
     listing.is_active = true;
     listing.bump = ctx.bumps.listing;
     
-    msg!("Ticket listed for resale at price: {}", resale_price);
+    msg!("Ticket listed, ownership transferred to program authority");
     
     Ok(())
 }
@@ -78,7 +86,7 @@ pub struct BuyListedTicket<'info> {
     
     #[account(
         mut,
-        close = seller,
+        close = original_seller,
         constraint = listing.is_active @ ErrorCode::ListingNotActive
     )]
     pub listing: Account<'info, ListingAccount>,
@@ -89,15 +97,22 @@ pub struct BuyListedTicket<'info> {
     )]
     pub ticket: Account<'info, TicketAccount>,
     
+    #[account(
+        mut,
+        seeds = [NonceTracker::SEED_PREFIX],
+        bump
+    )]
+    pub nonce_tracker: Account<'info, NonceTracker>,
+    
     #[account(mut)]
     pub buyer: Signer<'info>,
     
-    /// CHECK: Seller will receive USDC and rent refund
+    /// CHECK: Original seller receives USDC and rent refund
     #[account(
         mut,
-        constraint = listing.seller == seller.key()
+        constraint = listing.original_seller == original_seller.key()
     )]
-    pub seller: AccountInfo<'info>,
+    pub original_seller: AccountInfo<'info>,
     
     /// CHECK: Verified by token program
     #[account(mut)]
@@ -122,7 +137,55 @@ pub struct BuyListedTicket<'info> {
     // [2] pof_global_state, [3] pof_program
 }
 
-pub fn buy_listed_ticket<'info>(ctx: Context<'_, '_, '_, 'info, BuyListedTicket<'info>>) -> Result<()> {
+pub fn buy_listed_ticket<'info>(
+    ctx: Context<'_, '_, '_, 'info, BuyListedTicket<'info>>,
+    authorization_data: super::purchase::AuthorizationData,
+    backend_signature: [u8; 64],
+) -> Result<()> {
+    let clock = Clock::get()?;
+    let current_time = clock.unix_timestamp;
+    
+    // 1. Verify this is a resale transaction
+    require!(
+        authorization_data.ticket_pda == Some(ctx.accounts.ticket.key()),
+        ErrorCode::InvalidTicketPda
+    );
+    
+    // 2. Verify backend signature
+    super::purchase::verify_backend_signature(
+        &ctx.accounts.platform_config.backend_authority,
+        &authorization_data,
+        &backend_signature,
+    )?;
+    
+    // 3. Check authorization not expired
+    require!(
+        current_time <= authorization_data.valid_until,
+        ErrorCode::AuthorizationExpired
+    );
+    
+    // 4. Check nonce not used
+    require!(
+        !ctx.accounts.nonce_tracker.is_nonce_used(
+            authorization_data.nonce,
+            &ctx.accounts.buyer.key(),
+            current_time
+        ),
+        ErrorCode::NonceAlreadyUsed
+    );
+    
+    // 5. Verify buyer matches
+    require!(
+        authorization_data.buyer == ctx.accounts.buyer.key(),
+        ErrorCode::Unauthorized
+    );
+    
+    // 6. Verify price
+    require!(
+        ctx.accounts.listing.price <= authorization_data.max_price,
+        ErrorCode::PriceMismatch
+    );
+    
     let resale_price = ctx.accounts.listing.price;
     let platform_fee = ctx.accounts.platform_config.fee_amount_usdc;
     
@@ -181,7 +244,14 @@ pub fn buy_listed_ticket<'info>(ctx: Context<'_, '_, '_, 'info, BuyListedTicket<
         .checked_add(1)
         .ok_or(ErrorCode::ArithmeticOverflow)?;
     
-    // 5. CPI to PoF program for resale points
+    // 5. Mark nonce as used
+    ctx.accounts.nonce_tracker.mark_nonce_used(
+        authorization_data.nonce,
+        ctx.accounts.buyer.key(),
+        current_time
+    );
+    
+    // 6. CPI to PoF program for resale points
     // Seller: -original_points, Buyer: +new_points
     if ctx.remaining_accounts.len() >= 4 {
         let original_points = crate::instructions::calculate_purchase_points(original_price);
@@ -227,16 +297,26 @@ pub struct CancelListing<'info> {
     #[account(
         mut,
         close = seller,
-        constraint = listing.seller == seller.key() @ ErrorCode::Unauthorized
+        constraint = listing.original_seller == seller.key() @ ErrorCode::Unauthorized
     )]
     pub listing: Account<'info, ListingAccount>,
+    
+    #[account(
+        mut,
+        constraint = listing.ticket_pda == ticket.key()
+    )]
+    pub ticket: Account<'info, TicketAccount>,
     
     #[account(mut)]
     pub seller: Signer<'info>,
 }
 
-pub fn cancel_listing(_ctx: Context<CancelListing>) -> Result<()> {
-    msg!("Listing cancelled");
+pub fn cancel_listing(ctx: Context<CancelListing>) -> Result<()> {
+    // Return ticket ownership to original seller
+    let ticket = &mut ctx.accounts.ticket;
+    ticket.owner = ctx.accounts.listing.original_seller;
+    
+    msg!("Listing cancelled, ownership returned to seller");
     
     // Listing account is closed automatically via close constraint
     
