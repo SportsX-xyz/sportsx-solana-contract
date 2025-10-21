@@ -15,7 +15,7 @@ const backendAuthority = Keypair.fromSecretKey(
 function signPurchaseAuthorization(
   buyer: PublicKey,
   ticketTypeId: string,
-  ticketUuid: string,      // Backend-generated UUID (standard UUID format)
+  ticketUuid: string,      // Backend-generated UUID (32 bytes, no hyphens)
   maxPrice: bigint,
   validUntil: bigint,
   nonce: bigint,
@@ -27,7 +27,7 @@ function signPurchaseAuthorization(
   const parts: Buffer[] = [
     buyer.toBuffer(),                              // 32 bytes
     Buffer.from(ticketTypeId),                     // variable
-    Buffer.from(ticketUuid),                       // variable (36 bytes for standard UUID)
+    Buffer.from(ticketUuid),                       // 32 bytes (UUID without hyphens)
     Buffer.from(new BigUint64Array([maxPrice]).buffer),   // 8 bytes LE
     Buffer.from(new BigInt64Array([validUntil]).buffer),  // 8 bytes LE  
     Buffer.from(new BigUint64Array([nonce]).buffer),      // 8 bytes LE
@@ -71,8 +71,8 @@ export async function POST_authorize_purchase(req, res) {
   const nonce = BigInt(Date.now());
   const validUntil = BigInt(Math.floor(Date.now() / 1000) + 60); // 60秒有效
   
-  // 重要：使用票的UUID（必须与数据库中存储的UUID一致）
-  const ticketUuid = ticket.uuid;  // 数据库中预生成的标准UUID
+  // 重要：使用票的UUID，去掉连字符（Solana PDA seed限制32字节）
+  const ticketUuid = ticket.uuid.replace(/-/g, '');  // 数据库存标准格式，传链上去连字符
   
   const signature = signPurchaseAuthorization(
     new PublicKey(buyer),

@@ -13,9 +13,10 @@ import {
   createAccount,
   mintTo,
   getAccount,
+  getOrCreateAssociatedTokenAccount,
 } from "@solana/spl-token";
 import { assert } from "chai";
-import { v4 as uuidv4 } from "uuid";
+import { randomUUID } from "crypto";
 
 // PoF Program ID (optional - tests will skip PoF if not available)
 const POF_PROGRAM_ID = new PublicKey("E5Arj2VAzHNHwWgFQgb6nHfp1WQA5ShEpdbjYmknpafV");
@@ -101,12 +102,14 @@ describe("SportsX Ticketing Program", () => {
       deployer.publicKey
     );
 
-    organizerUsdcAccount = await createAccount(
+    // Create ATA for event organizer (deployer is the organizer in tests)
+    const organizerAta = await getOrCreateAssociatedTokenAccount(
       provider.connection,
       deployer.payer,
       usdcMint,
-      organizer.publicKey
+      deployer.publicKey  // deployer is set as event.organizer in create_event
     );
+    organizerUsdcAccount = organizerAta.address;
 
     buyerUsdcAccount = await createAccount(
       provider.connection,
@@ -288,7 +291,7 @@ describe("SportsX Ticketing Program", () => {
     it("Purchases a ticket with backend authorization", async () => {
       const nonce = Date.now();
       const validUntil = Math.floor(Date.now() / 1000) + 300; // 5 minutes
-      const ticketUuid = uuidv4();  // Generate UUID for this ticket
+      const ticketUuid = randomUUID().replace(/-/g, '');  // 32 bytes (no hyphens)
 
       const authData = {
         buyer: buyer.publicKey,
@@ -381,7 +384,7 @@ describe("SportsX Ticketing Program", () => {
 
       const nonce = Date.now() + 1;
       const validUntil = Math.floor(Date.now() / 1000) + 300;
-      const ticketUuid2 = uuidv4();
+      const ticketUuid2 = randomUUID().replace(/-/g, '');
       const authData = {
         buyer: buyer.publicKey,
         ticketTypeId: TICKET_TYPE_ID,
@@ -711,7 +714,7 @@ describe("SportsX Ticketing Program", () => {
       // Buy a new ticket first (for PoF test)
       const nonce = Date.now() + 999;
       const validUntil = Math.floor(Date.now() / 1000) + 300;
-      const ticketUuid3 = uuidv4();
+      const ticketUuid3 = randomUUID().replace(/-/g, '');
       const authData = {
         buyer: buyer2.publicKey,
         ticketTypeId: TICKET_TYPE_ID,
