@@ -269,9 +269,10 @@ describe("SportsX Ticketing Program", () => {
       await program.methods
         .addCheckinOperator(EVENT_ID, checkinOperator.publicKey)
         .accounts({
+          platformConfig,
           event: eventPda,
           checkinAuthority: checkinAuthorityPda,
-          organizer: deployer.publicKey,
+          admin: deployer.publicKey,
           systemProgram: SystemProgram.programId,
         })
         .rpc();

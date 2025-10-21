@@ -95,23 +95,31 @@ pub fn update_event_status(
 #[instruction(event_id: String, operator: Pubkey)]
 pub struct AddCheckInOperator<'info> {
     #[account(
+        seeds = [PlatformConfig::SEED_PREFIX],
+        bump = platform_config.bump
+    )]
+    pub platform_config: Account<'info, PlatformConfig>,
+    
+    #[account(
         seeds = [EventAccount::SEED_PREFIX, event_id.as_bytes()],
-        bump = event.bump,
-        constraint = event.organizer == organizer.key() @ ErrorCode::Unauthorized
+        bump = event.bump
     )]
     pub event: Account<'info, EventAccount>,
     
     #[account(
         init,
-        payer = organizer,
+        payer = admin,
         space = CheckInAuthority::SIZE,
         seeds = [CheckInAuthority::SEED_PREFIX, event_id.as_bytes(), operator.as_ref()],
         bump
     )]
     pub checkin_authority: Account<'info, CheckInAuthority>,
     
-    #[account(mut)]
-    pub organizer: Signer<'info>,
+    #[account(
+        mut,
+        constraint = admin.key() == platform_config.event_admin @ ErrorCode::Unauthorized
+    )]
+    pub admin: Signer<'info>,
     
     pub system_program: Program<'info, System>,
 }
@@ -138,9 +146,14 @@ pub fn add_checkin_operator(
 #[instruction(event_id: String, operator: Pubkey)]
 pub struct RemoveCheckInOperator<'info> {
     #[account(
+        seeds = [PlatformConfig::SEED_PREFIX],
+        bump = platform_config.bump
+    )]
+    pub platform_config: Account<'info, PlatformConfig>,
+    
+    #[account(
         seeds = [EventAccount::SEED_PREFIX, event_id.as_bytes()],
-        bump = event.bump,
-        constraint = event.organizer == organizer.key() @ ErrorCode::Unauthorized
+        bump = event.bump
     )]
     pub event: Account<'info, EventAccount>,
     
@@ -151,7 +164,10 @@ pub struct RemoveCheckInOperator<'info> {
     )]
     pub checkin_authority: Account<'info, CheckInAuthority>,
     
-    pub organizer: Signer<'info>,
+    #[account(
+        constraint = admin.key() == platform_config.event_admin @ ErrorCode::Unauthorized
+    )]
+    pub admin: Signer<'info>,
 }
 
 pub fn remove_checkin_operator(
