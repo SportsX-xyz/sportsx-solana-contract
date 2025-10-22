@@ -48,6 +48,11 @@ pub mod ticketing_program {
         )
     }
 
+    /// Initialize ticket authority for existing deployments
+    pub fn initialize_ticket_authority(ctx: Context<InitializeTicketAuthority>) -> Result<()> {
+        instructions::platform::initialize_ticket_authority(ctx)
+    }
+
     /// Toggle platform pause status
     pub fn toggle_pause(ctx: Context<TogglePause>) -> Result<()> {
         instructions::platform::toggle_pause(ctx)

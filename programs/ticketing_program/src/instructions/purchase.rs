@@ -83,6 +83,13 @@ pub struct PurchaseTicket<'info> {
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
     
+    /// Ticket authority PDA for signing PoF CPI calls
+    #[account(
+        seeds = [TicketAuthority::SEED_PREFIX],
+        bump = ticket_authority.bump
+    )]
+    pub ticket_authority: Account<'info, TicketAuthority>,
+    
     // PoF integration: pass as remaining_accounts in order:
     // [0] buyer_pof_wallet (mut), [1] pof_global_state, [2] pof_program
 }
@@ -208,18 +215,25 @@ pub fn purchase_ticket<'info>(
     
     // 13. CPI to PoF program to add purchase points
     // Rule: min(50, floor(price_usdc / 10))
+    // remaining_accounts: [0] buyer_wallet_points, [1] pof_global_state, [2] pof_program
     if ctx.remaining_accounts.len() >= 3 {
-        let points = crate::instructions::calculate_purchase_points(ticket_price);
+        let points = crate::instructions::pof_integration::calculate_purchase_points(ticket_price);
         
-        match crate::instructions::update_pof_points(
+        let authority_seeds = &[
+            TicketAuthority::SEED_PREFIX,
+            &[ctx.accounts.ticket_authority.bump],
+        ];
+        let signer_seeds = &[&authority_seeds[..]];
+        
+        match crate::instructions::pof_integration::update_pof_points(
             &ctx.remaining_accounts[0],
             &ctx.remaining_accounts[1],
-            &ctx.accounts.buyer.to_account_info(),
+            &ctx.accounts.ticket_authority.to_account_info(),
             &ctx.remaining_accounts[2],
             points,
-            None,
+            signer_seeds,
         ) {
-            Ok(_) => msg!("PoF points added: {}", points),
+            Ok(_) => msg!("PoF points added: +{} (purchase)", points),
             Err(e) => msg!("PoF update failed (non-critical): {:?}", e),
         }
     }

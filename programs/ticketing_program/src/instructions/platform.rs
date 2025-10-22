@@ -23,6 +23,15 @@ pub struct InitializePlatform<'info> {
     )]
     pub nonce_tracker: Account<'info, NonceTracker>,
     
+    #[account(
+        init,
+        payer = deployer,
+        space = TicketAuthority::SIZE,
+        seeds = [TicketAuthority::SEED_PREFIX],
+        bump
+    )]
+    pub ticket_authority: Account<'info, TicketAuthority>,
+    
     #[account(mut)]
     pub deployer: Signer<'info>,
     
@@ -50,7 +59,46 @@ pub fn initialize_platform(
     let nonce_tracker = &mut ctx.accounts.nonce_tracker;
     nonce_tracker.next_index = 0;
     
+    // Initialize ticket authority for PoF integration
+    let ticket_authority = &mut ctx.accounts.ticket_authority;
+    ticket_authority.bump = ctx.bumps.ticket_authority;
+    
     msg!("Platform initialized with deployer as authority: {}", ctx.accounts.deployer.key());
+    msg!("Ticket authority PDA initialized for PoF integration");
+    
+    Ok(())
+}
+
+/// Initialize ticket authority (for existing deployments)
+#[derive(Accounts)]
+pub struct InitializeTicketAuthority<'info> {
+    #[account(
+        seeds = [PlatformConfig::SEED_PREFIX],
+        bump = platform_config.bump,
+        constraint = platform_config.update_authority == authority.key() @ ErrorCode::Unauthorized
+    )]
+    pub platform_config: Account<'info, PlatformConfig>,
+    
+    #[account(
+        init,
+        payer = authority,
+        space = TicketAuthority::SIZE,
+        seeds = [TicketAuthority::SEED_PREFIX],
+        bump
+    )]
+    pub ticket_authority: Account<'info, TicketAuthority>,
+    
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    
+    pub system_program: Program<'info, System>,
+}
+
+pub fn initialize_ticket_authority(ctx: Context<InitializeTicketAuthority>) -> Result<()> {
+    let ticket_authority = &mut ctx.accounts.ticket_authority;
+    ticket_authority.bump = ctx.bumps.ticket_authority;
+    
+    msg!("Ticket authority PDA initialized for PoF integration");
     
     Ok(())
 }

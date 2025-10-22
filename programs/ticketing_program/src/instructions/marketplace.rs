@@ -142,6 +142,13 @@ pub struct BuyListedTicket<'info> {
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     
+    /// Ticket authority PDA for signing PoF CPI calls
+    #[account(
+        seeds = [TicketAuthority::SEED_PREFIX],
+        bump = ticket_authority.bump
+    )]
+    pub ticket_authority: Account<'info, TicketAuthority>,
+    
     // PoF integration: pass as remaining_accounts in order:
     // [0] seller_pof_wallet (mut), [1] buyer_pof_wallet (mut), 
     // [2] pof_global_state, [3] pof_program
@@ -273,33 +280,41 @@ pub fn buy_listed_ticket<'info>(
     
     // 6. CPI to PoF program for resale points
     // Seller: -original_points, Buyer: +new_points
+    // CPI to PoF program for resale points adjustment
+    // remaining_accounts: [0] seller_wallet_points, [1] buyer_wallet_points, [2] pof_global_state, [3] pof_program
     if ctx.remaining_accounts.len() >= 4 {
-        let original_points = crate::instructions::calculate_purchase_points(original_price);
-        let new_points = crate::instructions::calculate_purchase_points(resale_price);
+        let original_points = crate::instructions::pof_integration::calculate_purchase_points(original_price);
+        let new_points = crate::instructions::pof_integration::calculate_purchase_points(resale_price);
+        
+        let authority_seeds = &[
+            TicketAuthority::SEED_PREFIX,
+            &[ctx.accounts.ticket_authority.bump],
+        ];
+        let signer_seeds = &[&authority_seeds[..]];
         
         // Deduct original purchase points from seller
-        match crate::instructions::update_pof_points(
+        match crate::instructions::pof_integration::update_pof_points(
             &ctx.remaining_accounts[0],
             &ctx.remaining_accounts[2],
-            &ctx.accounts.buyer.to_account_info(),
+            &ctx.accounts.ticket_authority.to_account_info(),
             &ctx.remaining_accounts[3],
             -original_points,
-            None,
+            signer_seeds,
         ) {
-            Ok(_) => msg!("PoF points deducted from seller: -{}", original_points),
+            Ok(_) => msg!("PoF points deducted from seller: -{} (resale)", original_points),
             Err(e) => msg!("PoF seller deduction failed (non-critical): {:?}", e),
         }
         
         // Add new purchase points to buyer based on resale price
-        match crate::instructions::update_pof_points(
+        match crate::instructions::pof_integration::update_pof_points(
             &ctx.remaining_accounts[1],
             &ctx.remaining_accounts[2],
-            &ctx.accounts.buyer.to_account_info(),
+            &ctx.accounts.ticket_authority.to_account_info(),
             &ctx.remaining_accounts[3],
             new_points,
-            None,
+            signer_seeds,
         ) {
-            Ok(_) => msg!("PoF points added to buyer: +{}", new_points),
+            Ok(_) => msg!("PoF points added to buyer: +{} (resale)", new_points),
             Err(e) => msg!("PoF buyer addition failed (non-critical): {:?}", e),
         }
     }

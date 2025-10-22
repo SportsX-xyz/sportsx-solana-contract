@@ -27,6 +27,13 @@ pub struct CheckInTicket<'info> {
     
     pub operator: Signer<'info>,
     
+    /// Ticket authority PDA for signing PoF CPI calls
+    #[account(
+        seeds = [TicketAuthority::SEED_PREFIX],
+        bump = ticket_authority.bump
+    )]
+    pub ticket_authority: Account<'info, TicketAuthority>,
+    
     // PoF integration: pass as remaining_accounts in order:
     // [0] ticket_owner_pof_wallet (mut), [1] pof_global_state, [2] pof_program
 }
@@ -54,16 +61,23 @@ pub fn check_in_ticket<'info>(
     
     // CPI to PoF program to add check-in points
     // Rule: +100 points for checking in
+    // remaining_accounts: [0] ticket_owner_wallet_points, [1] pof_global_state, [2] pof_program
     if ctx.remaining_accounts.len() >= 3 {
-        match crate::instructions::update_pof_points(
+        let authority_seeds = &[
+            TicketAuthority::SEED_PREFIX,
+            &[ctx.accounts.ticket_authority.bump],
+        ];
+        let signer_seeds = &[&authority_seeds[..]];
+        
+        match crate::instructions::pof_integration::update_pof_points(
             &ctx.remaining_accounts[0],
             &ctx.remaining_accounts[1],
-            &ctx.accounts.operator.to_account_info(),
+            &ctx.accounts.ticket_authority.to_account_info(),
             &ctx.remaining_accounts[2],
             100, // +100 points for check-in
-            None,
+            signer_seeds,
         ) {
-            Ok(_) => msg!("PoF points added: +100 for check-in"),
+            Ok(_) => msg!("PoF points added: +100 (check-in)"),
             Err(e) => msg!("PoF update failed (non-critical): {:?}", e),
         }
     }

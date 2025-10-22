@@ -1,0 +1,474 @@
+{
+  "address": "E5Arj2VAzHNHwWgFQgb6nHfp1WQA5ShEpdbjYmknpafV",
+  "metadata": {
+    "name": "sportsx_pof",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "SportsX Proof of Fandom (PoF) Smart Contract"
+  },
+  "instructions": [
+    {
+      "name": "authorize_contract",
+      "docs": [
+        "Authorize a contract to update points"
+      ],
+      "discriminator": [
+        49,
+        122,
+        199,
+        15,
+        188,
+        207,
+        119,
+        194
+      ],
+      "accounts": [
+        {
+          "name": "global_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "global_state"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "contract",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "get_points",
+      "docs": [
+        "Get wallet points (view function - can be called via account fetch)"
+      ],
+      "discriminator": [
+        175,
+        65,
+        116,
+        251,
+        176,
+        33,
+        167,
+        225
+      ],
+      "accounts": [
+        {
+          "name": "wallet_points",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  119,
+                  97,
+                  108,
+                  108,
+                  101,
+                  116,
+                  95,
+                  112,
+                  111,
+                  105,
+                  110,
+                  116,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "wallet_points.wallet",
+                "account": "WalletPoints"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [],
+      "returns": "i64"
+    },
+    {
+      "name": "initialize",
+      "docs": [
+        "Initialize the global state with admin authority"
+      ],
+      "discriminator": [
+        175,
+        175,
+        109,
+        31,
+        13,
+        152,
+        155,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "global_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "initialize_wallet",
+      "docs": [
+        "Initialize a wallet's point account"
+      ],
+      "discriminator": [
+        213,
+        0,
+        239,
+        240,
+        73,
+        100,
+        188,
+        193
+      ],
+      "accounts": [
+        {
+          "name": "wallet_points",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  119,
+                  97,
+                  108,
+                  108,
+                  101,
+                  116,
+                  95,
+                  112,
+                  111,
+                  105,
+                  110,
+                  116,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "wallet"
+              }
+            ]
+          }
+        },
+        {
+          "name": "wallet"
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "revoke_contract",
+      "docs": [
+        "Revoke a contract's authorization"
+      ],
+      "discriminator": [
+        173,
+        210,
+        29,
+        117,
+        118,
+        169,
+        185,
+        193
+      ],
+      "accounts": [
+        {
+          "name": "global_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "global_state"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "contract",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "update_points",
+      "docs": [
+        "Update wallet points (admin or authorized contract only)"
+      ],
+      "discriminator": [
+        52,
+        203,
+        177,
+        240,
+        97,
+        102,
+        160,
+        48
+      ],
+      "accounts": [
+        {
+          "name": "wallet_points",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  119,
+                  97,
+                  108,
+                  108,
+                  101,
+                  116,
+                  95,
+                  112,
+                  111,
+                  105,
+                  110,
+                  116,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "wallet_points.wallet",
+                "account": "WalletPoints"
+              }
+            ]
+          }
+        },
+        {
+          "name": "global_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "points_delta",
+          "type": "i64"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "GlobalState",
+      "discriminator": [
+        163,
+        46,
+        74,
+        168,
+        216,
+        123,
+        133,
+        98
+      ]
+    },
+    {
+      "name": "WalletPoints",
+      "discriminator": [
+        97,
+        168,
+        195,
+        250,
+        19,
+        188,
+        130,
+        136
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "Unauthorized",
+      "msg": "Unauthorized: Only admin or authorized contracts can update points"
+    },
+    {
+      "code": 6001,
+      "name": "PointsOverflow",
+      "msg": "Points overflow occurred"
+    },
+    {
+      "code": 6002,
+      "name": "InsufficientPoints",
+      "msg": "Insufficient points for this operation"
+    },
+    {
+      "code": 6003,
+      "name": "ContractAlreadyAuthorized",
+      "msg": "Contract is already authorized"
+    },
+    {
+      "code": 6004,
+      "name": "ContractNotAuthorized",
+      "msg": "Contract is not authorized"
+    },
+    {
+      "code": 6005,
+      "name": "MaxAuthorizedContractsReached",
+      "msg": "Maximum number of authorized contracts reached"
+    }
+  ],
+  "types": [
+    {
+      "name": "GlobalState",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "authorized_contracts",
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "WalletPoints",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "points",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    }
+  ]
+}
