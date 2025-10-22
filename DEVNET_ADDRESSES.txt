@@ -1,5 +1,31 @@
-# Devnet Deployment - Save for reference
+# SportsX Devnet 部署地址
+
+## 程序地址
 POF_PROGRAM_ID=E5Arj2VAzHNHwWgFQgb6nHfp1WQA5ShEpdbjYmknpafV
 CHECKIN_PROGRAM_ID=2ZH4YcsqZTSKY1iAMwPMZUN6rSvTBhSCvso9pUWD9eXX
+TICKETING_PROGRAM_ID=EFuMNTn1zfn6Zhvdq1Vjaxs83sz2gTWvDgjuJcKDYjhw
+
+## PDA 地址
+# PoF PDAs
 GLOBAL_STATE_PDA=2hcdXc13orDhHYkTCxLPkKwbcNwcXWMjkdYXK1BPw2ym
+
+# Check-in PDAs
 CHECKIN_AUTHORITY_PDA=6VhHaApS3DFizoVfaFgskskV2XN2hFkmfZEh1VqF4XMA
+
+# Ticketing PDAs
+TICKET_AUTHORITY_PDA=5qSt1JKvdo5zwx8FZCd74ENz3hwHsU1xdeiDPkKBh8Hy
+
+## 管理账户地址
+FEE_RECEIVER=F3muW7SHCjRWz9gPE639hkekbW2YxNUPA4r6mefZvzqx
+EVENT_ADMIN=DsSBRCNzwNTsYeh6zyQqqPJbQVBprPUaVmaPuegaeQBS
+BACKEND_AUTHORITY=GfuCzHtUXttb4MjwUL9EGtcgxrYZekfMmJi9fzHLu2qQ
+
+## 部署信息
+NETWORK=devnet
+CLUSTER_URL=https://api.devnet.solana.com
+EXPLORER=https://explorer.solana.com/?cluster=devnet
+
+## 授权状态
+✅ Checkin Authority 已授权到 POF
+✅ Ticket Authority 已授权到 POF
+✅ 平台配置已完成
