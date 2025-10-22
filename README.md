@@ -26,6 +26,19 @@ Daily check-in system that rewards users with PoF points via Cross-Program Invoc
 
 **Program ID**: `2ZH4YcsqZTSKY1iAMwPMZUN6rSvTBhSCvso9pUWD9eXX`
 
+### 3. Ticketing Program
+Complete event ticketing system with marketplace, backend authorization, and PoF integration.
+
+**Features**:
+- **Platform Management**: Configuration, fee settings, pause/resume controls
+- **Event Management**: Create events, manage status, configure check-in operators
+- **Ticket Purchase**: Backend-authorized ticket purchase with USDC payment
+- **NFT Marketplace**: List/buy/cancel ticket resales with fee collection
+- **Check-in System**: On-site ticket verification with PoF rewards
+- **Security**: Ed25519 signature verification for backend authorization
+
+**Program ID**: `EFuMNTn1zfn6Zhvdq1Vjaxs83sz2gTWvDgjuJcKDYjhw`
+
 ## Architecture
 
 Built with Anchor framework on Solana.
@@ -52,6 +65,24 @@ Built with Anchor framework on Solana.
 - `initialize_checkin`: Create check-in record for wallet
 - `daily_checkin`: Perform check-in (24hr cooldown) and receive 10 PoF points via CPI
 - `get_checkin_info`: Query check-in status and next available time
+
+### Ticketing Contract
+
+**Accounts**:
+- `PlatformConfig`: Platform settings (fees, authorities, pause status)
+- `EventAccount`: Event details (times, metadata, resale rules)
+- `TicketAccount`: Individual ticket NFTs with ownership and seat info
+- `ListingAccount`: Marketplace listings for ticket resale
+- `NonceTracker`: Replay attack prevention for backend signatures
+- `TicketAuthority`: Authority PDA for PoF integration
+- `CheckInAuthority`: Check-in operator management per event
+
+**Instructions**:
+- **Platform**: `initialize_platform`, `update_platform_config`, `toggle_pause`, `transfer_authority`
+- **Events**: `create_event`, `update_event_status`, `add_checkin_operator`, `remove_checkin_operator`
+- **Purchase**: `purchase_ticket` (backend-authorized with USDC payment)
+- **Marketplace**: `list_ticket`, `buy_listed_ticket`, `cancel_listing`
+- **Check-in**: `check_in_ticket` (rewards PoF points via CPI)
 
 ## Documentation
 
@@ -231,24 +262,39 @@ await program.methods
 ## Program Structure
 
 ```
-sportsx-pof-contract/
-├── Anchor.toml              # Anchor configuration
-├── Cargo.toml              # Workspace configuration
-├── package.json            # Node dependencies
+sportsx-solana-contract/
+├── Anchor.toml                  # Anchor configuration
+├── Cargo.toml                  # Workspace configuration
+├── package.json                # Node dependencies
 ├── programs/
-│   └── sportsx-pof/
-│       ├── Cargo.toml      # Program dependencies
-│       ├── Xargo.toml      # Cross-compilation config
+│   ├── sportsx-pof/           # PoF points system
+│   │   ├── Cargo.toml
+│   │   ├── Xargo.toml
+│   │   └── src/lib.rs
+│   ├── sportsx-checkin/       # Daily check-in rewards
+│   │   ├── Cargo.toml
+│   │   ├── Xargo.toml
+│   │   └── src/lib.rs
+│   └── ticketing_program/     # Event ticketing & marketplace
+│       ├── Cargo.toml
+│       ├── Xargo.toml
 │       └── src/
-│           └── lib.rs      # Main program code
-└── tests/
-    └── sportsx-pof.ts     # Integration tests
+│           ├── lib.rs
+│           ├── errors.rs
+│           ├── instructions/  # Platform, event, purchase, marketplace, check-in
+│           └── state/         # Account structures
+├── tests/
+│   ├── sportsx-pof.ts
+│   ├── sportsx-checkin.ts
+│   └── ticketing.ts
+└── scripts/                   # Deployment & initialization scripts
 ```
 
 ## Testing
 
 The test suite covers:
 
+**PoF Contract**:
 - Global state initialization
 - Wallet points initialization
 - Point updates (increase/decrease) by admin
@@ -257,6 +303,20 @@ The test suite covers:
 - Contract authorization/revocation
 - Authorized contract point updates
 - Edge cases (negative balance, double authorization, etc.)
+
+**Check-in Contract**:
+- Check-in record initialization
+- Daily check-in with 24-hour cooldown
+- PoF points rewards via CPI
+- Check-in status queries
+
+**Ticketing Contract**:
+- Platform initialization and configuration
+- Event creation and management
+- Ticket purchase with backend authorization
+- Marketplace listing, buying, and cancellation
+- Check-in flow with PoF rewards
+- Security (signature verification, nonce replay prevention)
 
 Run tests with:
 ```bash
