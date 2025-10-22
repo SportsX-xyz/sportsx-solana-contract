@@ -7,10 +7,15 @@ skip-lint = false
 [programs.localnet]
 sportsx_pof = "E5Arj2VAzHNHwWgFQgb6nHfp1WQA5ShEpdbjYmknpafV"
 sportsx_checkin = "2ZH4YcsqZTSKY1iAMwPMZUN6rSvTBhSCvso9pUWD9eXX"
+ticketing_program = "EFuMNTn1zfn6Zhvdq1Vjaxs83sz2gTWvDgjuJcKDYjhw"
 
 [programs.devnet]
 sportsx_pof = "E5Arj2VAzHNHwWgFQgb6nHfp1WQA5ShEpdbjYmknpafV"
 sportsx_checkin = "2ZH4YcsqZTSKY1iAMwPMZUN6rSvTBhSCvso9pUWD9eXX"
+ticketing_program = "EFuMNTn1zfn6Zhvdq1Vjaxs83sz2gTWvDgjuJcKDYjhw"
+
+[programs.mainnet]
+ticketing_program = "EFuMNTn1zfn6Zhvdq1Vjaxs83sz2gTWvDgjuJcKDYjhw"
 
 [registry]
 url = "https://api.apr.dev"
