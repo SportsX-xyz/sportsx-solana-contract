@@ -1,1 +1,0 @@
-Implement ticket authority for PoF integration in ticketing program. Updated Anchor.toml with new program ID, added ticket authority state and initialization logic, and integrated PoF points management across various instructions. Enhanced CPI calls to utilize ticket authority for signing. Introduced new script for initializing ticket authority in existing deployments.
