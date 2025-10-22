@@ -85,3 +85,6 @@ logs/
 .cache/
 .local/
 .docs/
+backend-authority.json
+fee-receiver-wallet.json
+event-admin-wallet.json
