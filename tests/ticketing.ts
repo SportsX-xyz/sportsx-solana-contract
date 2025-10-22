@@ -289,23 +289,7 @@ describe("SportsX Ticketing Program", () => {
 
   describe("Purchase Flow", () => {
     it("Purchases a ticket with backend authorization", async () => {
-      const nonce = Date.now();
-      const validUntil = Math.floor(Date.now() / 1000) + 300; // 5 minutes
       const ticketUuid = randomUUID().replace(/-/g, '');  // 32 bytes (no hyphens)
-
-      const authData = {
-        buyer: buyer.publicKey,
-        ticketTypeId: TICKET_TYPE_ID,
-        ticketUuid,  // UUID for first-time purchase
-        maxPrice: new BN(TICKET_PRICE),
-        validUntil: new BN(validUntil),
-        nonce: new BN(nonce),
-        ticketPda: null,  // First-time purchase
-        rowNumber: 5,
-        columnNumber: 10,
-      };
-
-      // Backend authority must co-sign the transaction now (no detached signature)
 
       // PDA uses UUID instead of sequence number
       [ticketPda] = PublicKey.findProgramAddressSync(
@@ -328,7 +312,14 @@ describe("SportsX Ticketing Program", () => {
       ).amount;
 
       await program.methods
-        .purchaseTicket(EVENT_ID, TICKET_TYPE_ID, ticketUuid, authData)
+        .purchaseTicket(
+          EVENT_ID, 
+          TICKET_TYPE_ID, 
+          ticketUuid, 
+          new BN(TICKET_PRICE),
+          5, // row_number
+          10 // column_number
+        )
         .accounts({
           platformConfig,
           backendAuthority: backendAuthority.publicKey,
@@ -392,20 +383,7 @@ describe("SportsX Ticketing Program", () => {
         return;
       }
 
-      const nonce = Date.now() + 1;
-      const validUntil = Math.floor(Date.now() / 1000) + 300;
       const ticketUuid2 = randomUUID().replace(/-/g, '');
-      const authData = {
-        buyer: buyer.publicKey,
-        ticketTypeId: TICKET_TYPE_ID,
-        ticketUuid: ticketUuid2,
-        maxPrice: new BN(TICKET_PRICE),
-        validUntil: new BN(validUntil),
-        nonce: new BN(nonce),
-        ticketPda: null,  // First-time purchase
-        rowNumber: 6,
-        columnNumber: 11,
-      };
 
       const [ticket2Pda] = PublicKey.findProgramAddressSync(
         [Buffer.from("ticket"), Buffer.from(EVENT_ID), Buffer.from(ticketUuid2)],
@@ -413,7 +391,14 @@ describe("SportsX Ticketing Program", () => {
       );
 
       await program.methods
-        .purchaseTicket(EVENT_ID, TICKET_TYPE_ID, ticketUuid2, authData)
+        .purchaseTicket(
+          EVENT_ID, 
+          TICKET_TYPE_ID, 
+          ticketUuid2, 
+          new BN(TICKET_PRICE),
+          6, // row_number
+          11 // column_number
+        )
         .accounts({
           platformConfig, backendAuthority: backendAuthority.publicKey, event: eventPda,
           ticket: ticket2Pda, nonceTracker,
@@ -672,20 +657,7 @@ describe("SportsX Ticketing Program", () => {
       const ticket = await program.account.ticketAccount.fetch(ticketPda);
       if (ticket.isCheckedIn) {
         // If ticket is already checked in, we need to create a new ticket for this test
-        const nonce = Date.now() + 2000;
-        const validUntil = Math.floor(Date.now() / 1000) + 300;
         const ticketUuid4 = randomUUID().replace(/-/g, '');
-        const authData = {
-          buyer: buyer2.publicKey,
-          ticketTypeId: TICKET_TYPE_ID,
-          ticketUuid: ticketUuid4,
-          maxPrice: new BN(TICKET_PRICE),
-          validUntil: new BN(validUntil),
-          nonce: new BN(nonce),
-          ticketPda: null,
-          rowNumber: 8,
-          columnNumber: 13,
-        };
 
         const [newTicketPda] = PublicKey.findProgramAddressSync(
           [Buffer.from("ticket"), Buffer.from(EVENT_ID), Buffer.from(ticketUuid4)],
@@ -693,7 +665,14 @@ describe("SportsX Ticketing Program", () => {
         );
 
         await program.methods
-          .purchaseTicket(EVENT_ID, TICKET_TYPE_ID, ticketUuid4, authData)
+          .purchaseTicket(
+            EVENT_ID, 
+            TICKET_TYPE_ID, 
+            ticketUuid4, 
+            new BN(TICKET_PRICE),
+            8, // row_number
+            13 // column_number
+          )
           .accounts({
             platformConfig,
             backendAuthority: backendAuthority.publicKey,
@@ -751,20 +730,7 @@ describe("SportsX Ticketing Program", () => {
       }
 
       // Buy a new ticket first (for PoF test)
-      const nonce = Date.now() + 999;
-      const validUntil = Math.floor(Date.now() / 1000) + 300;
       const ticketUuid3 = randomUUID().replace(/-/g, '');
-      const authData = {
-        buyer: buyer2.publicKey,
-        ticketTypeId: TICKET_TYPE_ID,
-        ticketUuid: ticketUuid3,
-        maxPrice: new BN(TICKET_PRICE),
-        validUntil: new BN(validUntil),
-        nonce: new BN(nonce),
-        ticketPda: null,  // First-time purchase
-        rowNumber: 7,
-        columnNumber: 12,
-      };
 
       const [newTicketPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("ticket"), Buffer.from(EVENT_ID), Buffer.from(ticketUuid3)],
@@ -772,7 +738,14 @@ describe("SportsX Ticketing Program", () => {
       );
 
       await program.methods
-        .purchaseTicket(EVENT_ID, TICKET_TYPE_ID, ticketUuid3, authData)
+        .purchaseTicket(
+          EVENT_ID, 
+          TICKET_TYPE_ID, 
+          ticketUuid3, 
+          new BN(TICKET_PRICE),
+          7, // row_number
+          12 // column_number
+        )
         .accounts({
           platformConfig, backendAuthority: backendAuthority.publicKey, event: eventPda,
           ticket: newTicketPda, nonceTracker,

@@ -102,52 +102,20 @@ pub fn purchase_ticket<'info>(
     event_id: String,
     type_id: String,
     ticket_uuid: String,
-    authorization_data: AuthorizationData,
+    ticket_price: u64,
+    row_number: u16,
+    column_number: u16,
 ) -> Result<()> {
     let clock = Clock::get()?;
     let current_time = clock.unix_timestamp;
     
-    // 1. Verify this is a first-time purchase (not resale)
-    require!(
-        authorization_data.ticket_pda.is_none(),
-        ErrorCode::InvalidTicketPda
-    );
-    
-    // 2. Verify UUID matches authorization
-    require!(
-        authorization_data.ticket_uuid == ticket_uuid,
-        ErrorCode::InvalidTicketPda
-    );
-    
-    // 3. Check authorization expiry
-    require!(
-        current_time <= authorization_data.valid_until,
-        ErrorCode::AuthorizationExpired
-    );
-    
-    // 4. Check nonce+buyer combination (with time-based expiration)
-    require!(
-        !ctx.accounts.nonce_tracker.is_nonce_used(
-            authorization_data.nonce,
-            &ctx.accounts.buyer.key(),
-            current_time
-        ),
-        ErrorCode::NonceAlreadyUsed
-    );
-    
-    // 5. Verify buyer matches
-    require!(
-        authorization_data.buyer == ctx.accounts.buyer.key(),
-        ErrorCode::Unauthorized
-    );
-    
-    // 6. Check sales time
+    // 1. Check sales time
     require!(
         ctx.accounts.event.can_sell_tickets(current_time),
         ErrorCode::SalesEnded
     );
     
-    // 7. Verify organizer USDC account is the correct ATA
+    // 2. Verify organizer USDC account is the correct ATA
     let expected_organizer_ata = anchor_spl::associated_token::get_associated_token_address(
         &ctx.accounts.event.organizer,
         &ctx.accounts.usdc_mint.key()
@@ -157,8 +125,6 @@ pub fn purchase_ticket<'info>(
         ErrorCode::Unauthorized
     );
     
-    // Ticket price comes from backend authorization (not stored on-chain)
-    let ticket_price = authorization_data.max_price;
     let platform_fee = ctx.accounts.platform_config.fee_amount_usdc;
     
     // 8. Transfer platform fee
@@ -187,7 +153,7 @@ pub fn purchase_ticket<'info>(
     );
     token::transfer(transfer_organizer_ctx, organizer_amount)?;
     
-    // 10. Create ticket (UUID防重复通过PDA init约束自动处理)
+    // 3. Create ticket (UUID防重复通过PDA init约束自动处理)
     let ticket = &mut ctx.accounts.ticket;
     ticket.event_id = event_id;
     ticket.ticket_type_id = type_id;
@@ -196,17 +162,10 @@ pub fn purchase_ticket<'info>(
     ticket.original_owner = ctx.accounts.buyer.key();
     ticket.resale_count = 0;
     ticket.is_checked_in = false;
-    ticket.row_number = authorization_data.row_number;
-    ticket.column_number = authorization_data.column_number;
+    ticket.row_number = row_number;
+    ticket.column_number = column_number;
     ticket.original_price = ticket_price;
     ticket.bump = ctx.bumps.ticket;
-    
-    // 11. Mark nonce+buyer as used (with timestamp for expiration tracking)
-    ctx.accounts.nonce_tracker.mark_nonce_used(
-        authorization_data.nonce,
-        ctx.accounts.buyer.key(),
-        current_time
-    );
     
     // 12. CPI to PoF program to add purchase points
     // Rule: min(50, floor(price_usdc / 10))

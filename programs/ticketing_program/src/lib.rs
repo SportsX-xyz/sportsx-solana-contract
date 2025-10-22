@@ -128,14 +128,18 @@ pub mod ticketing_program {
         event_id: String,
         type_id: String,
         ticket_uuid: String,
-        authorization_data: purchase::AuthorizationData,
+        ticket_price: u64,
+        row_number: u16,
+        column_number: u16,
     ) -> Result<()> {
         instructions::purchase::purchase_ticket(
             ctx,
             event_id,
             type_id,
             ticket_uuid,
-            authorization_data,
+            ticket_price,
+            row_number,
+            column_number,
         )
     }
 
