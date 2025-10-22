@@ -30,6 +30,9 @@ pub struct PurchaseTicket<'info> {
         constraint = !platform_config.is_paused @ ErrorCode::PlatformPaused
     )]
     pub platform_config: Account<'info, PlatformConfig>,
+    /// Backend authority must co-sign and match platform_config.backend_authority
+    #[account(constraint = backend_authority.key() == platform_config.backend_authority @ ErrorCode::Unauthorized)]
+    pub backend_authority: Signer<'info>,
     
     #[account(
         seeds = [EventAccount::SEED_PREFIX, event_id.as_bytes()],
@@ -100,7 +103,6 @@ pub fn purchase_ticket<'info>(
     type_id: String,
     ticket_uuid: String,
     authorization_data: AuthorizationData,
-    backend_signature: [u8; 64],
 ) -> Result<()> {
     let clock = Clock::get()?;
     let current_time = clock.unix_timestamp;
@@ -117,20 +119,13 @@ pub fn purchase_ticket<'info>(
         ErrorCode::InvalidTicketPda
     );
     
-    // 3. Verify backend signature
-    verify_backend_signature(
-        &ctx.accounts.platform_config.backend_authority,
-        &authorization_data,
-        &backend_signature,
-    )?;
-    
-    // 4. Check authorization expiry
+    // 3. Check authorization expiry
     require!(
         current_time <= authorization_data.valid_until,
         ErrorCode::AuthorizationExpired
     );
     
-    // 5. Check nonce+buyer combination (with time-based expiration)
+    // 4. Check nonce+buyer combination (with time-based expiration)
     require!(
         !ctx.accounts.nonce_tracker.is_nonce_used(
             authorization_data.nonce,
@@ -140,19 +135,19 @@ pub fn purchase_ticket<'info>(
         ErrorCode::NonceAlreadyUsed
     );
     
-    // 6. Verify buyer matches
+    // 5. Verify buyer matches
     require!(
         authorization_data.buyer == ctx.accounts.buyer.key(),
         ErrorCode::Unauthorized
     );
     
-    // 7. Check sales time
+    // 6. Check sales time
     require!(
         ctx.accounts.event.can_sell_tickets(current_time),
         ErrorCode::SalesEnded
     );
     
-    // 8. Verify organizer USDC account is the correct ATA
+    // 7. Verify organizer USDC account is the correct ATA
     let expected_organizer_ata = anchor_spl::associated_token::get_associated_token_address(
         &ctx.accounts.event.organizer,
         &ctx.accounts.usdc_mint.key()
@@ -166,7 +161,7 @@ pub fn purchase_ticket<'info>(
     let ticket_price = authorization_data.max_price;
     let platform_fee = ctx.accounts.platform_config.fee_amount_usdc;
     
-    // 9. Transfer platform fee
+    // 8. Transfer platform fee
     let transfer_platform_fee_ctx = CpiContext::new(
         ctx.accounts.token_program.to_account_info(),
         Transfer {
@@ -177,7 +172,7 @@ pub fn purchase_ticket<'info>(
     );
     token::transfer(transfer_platform_fee_ctx, platform_fee)?;
     
-    // 10. Transfer ticket price to organizer
+    // 9. Transfer ticket price to organizer
     let organizer_amount = ticket_price
         .checked_sub(platform_fee)
         .ok_or(ErrorCode::ArithmeticOverflow)?;
@@ -192,7 +187,7 @@ pub fn purchase_ticket<'info>(
     );
     token::transfer(transfer_organizer_ctx, organizer_amount)?;
     
-    // 11. Create ticket (UUID防重复通过PDA init约束自动处理)
+    // 10. Create ticket (UUID防重复通过PDA init约束自动处理)
     let ticket = &mut ctx.accounts.ticket;
     ticket.event_id = event_id;
     ticket.ticket_type_id = type_id;
@@ -206,14 +201,14 @@ pub fn purchase_ticket<'info>(
     ticket.original_price = ticket_price;
     ticket.bump = ctx.bumps.ticket;
     
-    // 12. Mark nonce+buyer as used (with timestamp for expiration tracking)
+    // 11. Mark nonce+buyer as used (with timestamp for expiration tracking)
     ctx.accounts.nonce_tracker.mark_nonce_used(
         authorization_data.nonce,
         ctx.accounts.buyer.key(),
         current_time
     );
     
-    // 13. CPI to PoF program to add purchase points
+    // 12. CPI to PoF program to add purchase points
     // Rule: min(50, floor(price_usdc / 10))
     // remaining_accounts: [0] buyer_wallet_points, [1] pof_global_state, [2] pof_program
     if ctx.remaining_accounts.len() >= 3 {
@@ -239,55 +234,6 @@ pub fn purchase_ticket<'info>(
     }
     
     msg!("Ticket purchased: UUID {}", ticket.ticket_uuid);
-    
-    Ok(())
-}
-
-/// Verify backend signature using Ed25519 Program (Solana native)
-pub fn verify_backend_signature(
-    backend_authority: &Pubkey,
-    authorization_data: &AuthorizationData,
-    signature: &[u8; 64],
-) -> Result<()> {
-    require!(
-        backend_authority != &Pubkey::default(),
-        ErrorCode::InvalidSignature
-    );
-    
-    // 1. Serialize authorization data (must match backend serialization)
-    let mut message = Vec::new();
-    message.extend_from_slice(&authorization_data.buyer.to_bytes());
-    message.extend_from_slice(authorization_data.ticket_type_id.as_bytes());
-    message.extend_from_slice(authorization_data.ticket_uuid.as_bytes());
-    message.extend_from_slice(&authorization_data.max_price.to_le_bytes());
-    message.extend_from_slice(&authorization_data.valid_until.to_le_bytes());
-    message.extend_from_slice(&authorization_data.nonce.to_le_bytes());
-    
-    // Serialize optional ticket_pda
-    if let Some(ticket_pda) = &authorization_data.ticket_pda {
-        message.push(1);  // Option::Some discriminator
-        message.extend_from_slice(&ticket_pda.to_bytes());
-    } else {
-        message.push(0);  // Option::None discriminator
-    }
-    
-    // Serialize seat information
-    message.extend_from_slice(&authorization_data.row_number.to_le_bytes());
-    message.extend_from_slice(&authorization_data.column_number.to_le_bytes());
-    
-    // 2. Verify using Ed25519Program instruction introspection (optional)
-    // For production: frontend should include Ed25519 verification instruction
-    // If Ed25519 instruction is present and valid, transaction proceeds
-    // If not present, relies on nonce+timestamp security (testing mode)
-    
-    msg!("Authorization message constructed: {} bytes", message.len());
-    msg!("Backend authority: {}", backend_authority);
-    msg!("Note: Ed25519Program signature verification is optional");
-    msg!("Security relies on: nonce+timestamp+buyer verification");
-    
-    // TODO: Implement Ed25519Program instruction introspection
-    // Reference: solana_program::sysvar::instructions
-    // Check if transaction includes Ed25519 verification instruction
     
     Ok(())
 }

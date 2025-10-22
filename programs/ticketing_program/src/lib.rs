@@ -129,7 +129,6 @@ pub mod ticketing_program {
         type_id: String,
         ticket_uuid: String,
         authorization_data: purchase::AuthorizationData,
-        backend_signature: [u8; 64],
     ) -> Result<()> {
         instructions::purchase::purchase_ticket(
             ctx,
@@ -137,7 +136,6 @@ pub mod ticketing_program {
             type_id,
             ticket_uuid,
             authorization_data,
-            backend_signature,
         )
     }
 
@@ -151,10 +149,9 @@ pub mod ticketing_program {
     /// Buy a listed ticket
     pub fn buy_listed_ticket<'info>(
         ctx: Context<'_, '_, '_, 'info, BuyListedTicket<'info>>,
-        authorization_data: purchase::AuthorizationData,
-        backend_signature: [u8; 64],
+        resale_price: u64,
     ) -> Result<()> {
-        instructions::marketplace::buy_listed_ticket(ctx, authorization_data, backend_signature)
+        instructions::marketplace::buy_listed_ticket(ctx, resale_price)
     }
 
     /// Cancel a ticket listing

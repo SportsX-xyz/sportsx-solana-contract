@@ -156,54 +156,18 @@ pub struct BuyListedTicket<'info> {
 
 pub fn buy_listed_ticket<'info>(
     ctx: Context<'_, '_, '_, 'info, BuyListedTicket<'info>>,
-    authorization_data: super::purchase::AuthorizationData,
-    backend_signature: [u8; 64],
+    resale_price: u64,
 ) -> Result<()> {
     let clock = Clock::get()?;
     let current_time = clock.unix_timestamp;
     
-    // 1. Verify this is a resale transaction
+    // 1. Verify price matches listing
     require!(
-        authorization_data.ticket_pda == Some(ctx.accounts.ticket.key()),
-        ErrorCode::InvalidTicketPda
-    );
-    
-    // 2. Verify backend signature
-    super::purchase::verify_backend_signature(
-        &ctx.accounts.platform_config.backend_authority,
-        &authorization_data,
-        &backend_signature,
-    )?;
-    
-    // 3. Check authorization not expired
-    require!(
-        current_time <= authorization_data.valid_until,
-        ErrorCode::AuthorizationExpired
-    );
-    
-    // 4. Check nonce not used
-    require!(
-        !ctx.accounts.nonce_tracker.is_nonce_used(
-            authorization_data.nonce,
-            &ctx.accounts.buyer.key(),
-            current_time
-        ),
-        ErrorCode::NonceAlreadyUsed
-    );
-    
-    // 5. Verify buyer matches
-    require!(
-        authorization_data.buyer == ctx.accounts.buyer.key(),
-        ErrorCode::Unauthorized
-    );
-    
-    // 6. Verify price
-    require!(
-        ctx.accounts.listing.price <= authorization_data.max_price,
+        ctx.accounts.listing.price == resale_price,
         ErrorCode::PriceMismatch
     );
     
-    // 7. Verify organizer USDC account is the correct ATA
+    // 2. Verify organizer USDC account is the correct ATA
     let expected_organizer_ata = anchor_spl::associated_token::get_associated_token_address(
         &ctx.accounts.event.organizer,
         &ctx.accounts.usdc_mint.key()
@@ -213,7 +177,6 @@ pub fn buy_listed_ticket<'info>(
         ErrorCode::Unauthorized
     );
     
-    let resale_price = ctx.accounts.listing.price;
     let platform_fee = ctx.accounts.platform_config.fee_amount_usdc;
     
     // Calculate organizer resale fee
@@ -271,12 +234,7 @@ pub fn buy_listed_ticket<'info>(
         .checked_add(1)
         .ok_or(ErrorCode::ArithmeticOverflow)?;
     
-    // 5. Mark nonce as used
-    ctx.accounts.nonce_tracker.mark_nonce_used(
-        authorization_data.nonce,
-        ctx.accounts.buyer.key(),
-        current_time
-    );
+    // 5. Update ticket ownership (no nonce tracking needed for resale)
     
     // 6. CPI to PoF program for resale points
     // Seller: -original_points, Buyer: +new_points
