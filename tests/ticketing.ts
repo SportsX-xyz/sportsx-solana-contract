@@ -85,22 +85,26 @@ describe("SportsX Ticketing Program", () => {
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
     // Create test USDC mint (we control mint authority for testing)
-    usdcMint = await createMint(
-      provider.connection,
-      deployer.payer,
-      deployer.publicKey,
-      null,
-      6 // USDC decimals
-    );
-    console.log("  Created test USDC mint:", usdcMint.toString());
+    // Only create if not already created
+    if (!usdcMint) {
+      usdcMint = await createMint(
+        provider.connection,
+        deployer.payer,
+        deployer.publicKey,
+        null,
+        6 // USDC decimals
+      );
+      console.log("  Created test USDC mint:", usdcMint.toString());
+    }
 
-    // Create USDC token accounts
-    platformUsdcAccount = await createAccount(
+    // Create USDC token accounts using getOrCreate to avoid duplicates
+    const platformAta = await getOrCreateAssociatedTokenAccount(
       provider.connection,
       deployer.payer,
       usdcMint,
       deployer.publicKey
     );
+    platformUsdcAccount = platformAta.address;
 
     // Create ATA for event organizer (deployer is the organizer in tests)
     const organizerAta = await getOrCreateAssociatedTokenAccount(
@@ -111,19 +115,22 @@ describe("SportsX Ticketing Program", () => {
     );
     organizerUsdcAccount = organizerAta.address;
 
-    buyerUsdcAccount = await createAccount(
+    // Create ATAs for buyers using getOrCreate to avoid duplicates
+    const buyerAta = await getOrCreateAssociatedTokenAccount(
       provider.connection,
       deployer.payer,
       usdcMint,
       buyer.publicKey
     );
+    buyerUsdcAccount = buyerAta.address;
 
-    buyer2UsdcAccount = await createAccount(
+    const buyer2Ata = await getOrCreateAssociatedTokenAccount(
       provider.connection,
       deployer.payer,
       usdcMint,
       buyer2.publicKey
     );
+    buyer2UsdcAccount = buyer2Ata.address;
 
     // Mint USDC to buyers
     await mintTo(
