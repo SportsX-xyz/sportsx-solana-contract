@@ -29,3 +29,9 @@ EXPLORER=https://explorer.solana.com/?cluster=devnet
 ✅ Checkin Authority 已授权到 POF
 ✅ Ticket Authority 已授权到 POF
 ✅ 平台配置已完成
+
+## 升级历史
+🔄 Ticketing Program 升级 - 2024-12-19
+- 交易签名: 3XudJXZx6pdbUji6p69PhjHYvMCXmS1qsqMgGUwLmxpoDaXy1o6rgGi4xCcboPcZ5scspEeDLE8m4n4A2UEjW1xE
+- 升级内容: 添加 ATA 验证，修复 USDC 账户安全验证
+- 状态: ✅ 升级成功

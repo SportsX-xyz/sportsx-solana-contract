@@ -117,16 +117,25 @@ pub struct BuyListedTicket<'info> {
     )]
     pub original_seller: AccountInfo<'info>,
     
-    /// CHECK: Verified by token program
-    #[account(mut)]
+    /// CHECK: Buyer's USDC ATA (verified at runtime)
+    #[account(
+        mut,
+        constraint = buyer_usdc_account.owner == &anchor_spl::token::ID,
+    )]
     pub buyer_usdc_account: AccountInfo<'info>,
     
-    /// CHECK: Verified by token program
-    #[account(mut)]
+    /// CHECK: Seller's USDC ATA (verified at runtime)
+    #[account(
+        mut,
+        constraint = seller_usdc_account.owner == &anchor_spl::token::ID,
+    )]
     pub seller_usdc_account: AccountInfo<'info>,
     
-    /// CHECK: Verified by token program
-    #[account(mut)]
+    /// CHECK: Platform's USDC ATA (verified at runtime)
+    #[account(
+        mut,
+        constraint = platform_usdc_account.owner == &anchor_spl::token::ID,
+    )]
     pub platform_usdc_account: AccountInfo<'info>,
     
     /// CHECK: Organizer's USDC ATA (verified at runtime against event.organizer)
@@ -167,7 +176,34 @@ pub fn buy_listed_ticket<'info>(
         ErrorCode::PriceMismatch
     );
     
-    // 2. Verify organizer USDC account is the correct ATA
+    // 2. Verify all USDC accounts are correct ATAs
+    let expected_buyer_ata = anchor_spl::associated_token::get_associated_token_address(
+        &ctx.accounts.buyer.key(),
+        &ctx.accounts.usdc_mint.key()
+    );
+    require!(
+        ctx.accounts.buyer_usdc_account.key() == expected_buyer_ata,
+        ErrorCode::Unauthorized
+    );
+    
+    let expected_seller_ata = anchor_spl::associated_token::get_associated_token_address(
+        &ctx.accounts.original_seller.key(),
+        &ctx.accounts.usdc_mint.key()
+    );
+    require!(
+        ctx.accounts.seller_usdc_account.key() == expected_seller_ata,
+        ErrorCode::Unauthorized
+    );
+    
+    let expected_platform_ata = anchor_spl::associated_token::get_associated_token_address(
+        &ctx.accounts.platform_config.fee_receiver,
+        &ctx.accounts.usdc_mint.key()
+    );
+    require!(
+        ctx.accounts.platform_usdc_account.key() == expected_platform_ata,
+        ErrorCode::Unauthorized
+    );
+    
     let expected_organizer_ata = anchor_spl::associated_token::get_associated_token_address(
         &ctx.accounts.event.organizer,
         &ctx.accounts.usdc_mint.key()
