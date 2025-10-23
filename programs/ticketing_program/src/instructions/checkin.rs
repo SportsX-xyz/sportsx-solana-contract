@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+// Token 2022 extension fields will be implemented later
 use crate::state::*;
 use crate::errors::ErrorCode;
 
@@ -25,6 +26,14 @@ pub struct CheckInTicket<'info> {
     )]
     pub ticket: Account<'info, TicketAccount>,
     
+    /// CHECK: Ticket NFT mint address
+    #[account(mut)]
+    pub ticket_mint: AccountInfo<'info>,
+    
+    /// CHECK: Ticket owner's NFT token account
+    #[account(mut)]
+    pub ticket_owner_token_account: AccountInfo<'info>,
+    
     pub operator: Signer<'info>,
     
     /// Ticket authority PDA for signing PoF CPI calls
@@ -33,6 +42,9 @@ pub struct CheckInTicket<'info> {
         bump = ticket_authority.bump
     )]
     pub ticket_authority: Account<'info, TicketAuthority>,
+    
+    /// CHECK: Token program (supports both SPL Token and Token 2022)
+    pub token_program: AccountInfo<'info>,
     
     // PoF integration: pass as remaining_accounts in order:
     // [0] ticket_owner_pof_wallet (mut), [1] pof_global_state, [2] pof_program
@@ -55,9 +67,24 @@ pub fn check_in_ticket<'info>(
         ErrorCode::InvalidCheckInTime
     );
     
-    // Mark ticket as checked in
+    // Mark ticket as checked in (both in PDA and NFT extension field)
     let ticket = &mut ctx.accounts.ticket;
     ticket.is_checked_in = true;
+    
+    // Update Token 2022 extension field for check-in status
+    // TODO: Implement Token 2022 extension field update
+    // The extension field would store:
+    // - check_in_status: bool (update to true)
+    // - check_in_time: i64 (current timestamp)
+    // - check_in_operator: Pubkey (operator who checked in)
+    
+    // For now, we keep the PDA field for compatibility
+    // Future implementation would involve calling Token 2022 program to update extension fields
+    msg!(
+        "Ticket marked as checked in (PDA field updated, Token 2022 extension field TODO) - Operator: {}, Time: {}", 
+        ctx.accounts.operator.key(),
+        current_time
+    );
     
     // CPI to PoF program to add check-in points
     // Rule: +100 points for checking in

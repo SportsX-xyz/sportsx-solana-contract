@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
-    token::{self, Token, Transfer},
+    token::{self, Transfer},
     associated_token::AssociatedToken,
 };
 use crate::state::*;
@@ -117,6 +117,18 @@ pub struct BuyListedTicket<'info> {
     )]
     pub original_seller: AccountInfo<'info>,
     
+    /// CHECK: Ticket NFT mint address
+    #[account(mut)]
+    pub ticket_mint: AccountInfo<'info>,
+    
+    /// CHECK: Seller's ticket NFT token account
+    #[account(mut)]
+    pub seller_ticket_account: AccountInfo<'info>,
+    
+    /// CHECK: Buyer's ticket NFT token account
+    #[account(mut)]
+    pub buyer_ticket_account: AccountInfo<'info>,
+    
     /// CHECK: Buyer's USDC ATA (verified at runtime)
     #[account(
         mut,
@@ -148,7 +160,8 @@ pub struct BuyListedTicket<'info> {
     /// CHECK: USDC mint address
     pub usdc_mint: AccountInfo<'info>,
     
-    pub token_program: Program<'info, Token>,
+    /// CHECK: Token program (supports both SPL Token and Token 2022)
+    pub token_program: AccountInfo<'info>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     
     /// Ticket authority PDA for signing PoF CPI calls
@@ -168,7 +181,7 @@ pub fn buy_listed_ticket<'info>(
     resale_price: u64,
 ) -> Result<()> {
     let clock = Clock::get()?;
-    let current_time = clock.unix_timestamp;
+    let _current_time = clock.unix_timestamp;
     
     // 1. Verify price matches listing
     require!(
@@ -262,7 +275,18 @@ pub fn buy_listed_ticket<'info>(
     );
     token::transfer(transfer_seller_ctx, seller_amount)?;
     
-    // 4. Update ticket ownership
+    // 4. Transfer NFT from seller to buyer
+    let transfer_nft_ctx = CpiContext::new(
+        ctx.accounts.token_program.to_account_info(),
+        Transfer {
+            from: ctx.accounts.seller_ticket_account.to_account_info(),
+            to: ctx.accounts.buyer_ticket_account.to_account_info(),
+            authority: ctx.accounts.original_seller.to_account_info(),
+        },
+    );
+    token::transfer(transfer_nft_ctx, 1)?; // Transfer 1 NFT
+    
+    // 5. Update ticket ownership
     let ticket = &mut ctx.accounts.ticket;
     let original_price = ticket.original_price;
     ticket.owner = ctx.accounts.buyer.key();
@@ -338,14 +362,59 @@ pub struct CancelListing<'info> {
     
     #[account(mut)]
     pub seller: Signer<'info>,
+    
+    /// CHECK: Ticket NFT mint address
+    #[account(mut)]
+    pub ticket_mint: AccountInfo<'info>,
+    
+    /// CHECK: Program authority ticket NFT token account
+    #[account(mut)]
+    pub program_ticket_account: AccountInfo<'info>,
+    
+    /// CHECK: Seller's ticket NFT token account
+    #[account(mut)]
+    pub seller_ticket_account: AccountInfo<'info>,
+    
+    /// Ticket authority PDA for signing transfers
+    #[account(
+        seeds = [TicketAuthority::SEED_PREFIX],
+        bump = ticket_authority.bump
+    )]
+    pub ticket_authority: Account<'info, TicketAuthority>,
+    
+    /// CHECK: Token program (supports both SPL Token and Token 2022)
+    pub token_program: AccountInfo<'info>,
 }
 
 pub fn cancel_listing(ctx: Context<CancelListing>) -> Result<()> {
+    // Transfer NFT back from program authority to seller
+    let transfer_nft_ctx = CpiContext::new(
+        ctx.accounts.token_program.to_account_info(),
+        Transfer {
+            from: ctx.accounts.program_ticket_account.to_account_info(),
+            to: ctx.accounts.seller_ticket_account.to_account_info(),
+            authority: ctx.accounts.ticket_authority.to_account_info(),
+        },
+    );
+    let authority_seeds = &[
+        TicketAuthority::SEED_PREFIX,
+        &[ctx.accounts.ticket_authority.bump],
+    ];
+    let signer_seeds = &[&authority_seeds[..]];
+    token::transfer(
+        CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            transfer_nft_ctx.accounts,
+            signer_seeds,
+        ),
+        1,
+    )?; // Transfer 1 NFT back
+    
     // Return ticket ownership to original seller
     let ticket = &mut ctx.accounts.ticket;
     ticket.owner = ctx.accounts.listing.original_seller;
     
-    msg!("Listing cancelled, ownership returned to seller");
+    msg!("Listing cancelled, NFT ownership returned to seller");
     
     // Listing account is closed automatically via close constraint
     
