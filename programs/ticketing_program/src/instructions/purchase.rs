@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
-    token::{self, Transfer, MintTo, SetAuthority, mint_to, set_authority},
+    token::{self, Transfer},
+    token_2022::{self, MintTo, SetAuthority, mint_to, set_authority},
     associated_token::AssociatedToken,
 };
 use crate::state::*;
@@ -221,37 +222,61 @@ pub fn purchase_ticket<'info>(
         ticket_uuid.clone(),
     )?;
     
-    // 6. Mint NFT to buyer (using buyer as mint authority initially)
+    // 6. Initialize mint (create the mint account)
+    let mint_space = 82; // Standard mint size for Token 2022
+    let mint_rent = Rent::get()?.minimum_balance(mint_space);
+    
+    // Create mint account using PDA - buyer creates the account and pays for it
+    // No additional signers needed for PDA creation
+    anchor_lang::system_program::create_account(
+        CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            anchor_lang::system_program::CreateAccount {
+                from: ctx.accounts.buyer.to_account_info(),
+                to: ctx.accounts.ticket_mint.to_account_info(),
+            },
+        ),
+        mint_rent,
+        mint_space as u64,
+        &anchor_spl::token_2022::ID,
+    )?;
+    
+    // Initialize mint using Token 2022
+    anchor_spl::token_2022::initialize_mint(
+        CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            anchor_spl::token_2022::InitializeMint {
+                mint: ctx.accounts.ticket_mint.to_account_info(),
+                rent: ctx.accounts.rent.to_account_info(),
+            },
+        ),
+        0, // decimals (NFTs have 0 decimals)
+        &ctx.accounts.buyer.key(), // mint authority
+        None, // freeze authority
+    )?;
+    
+    // 7. Mint NFT to buyer (using buyer as mint authority)
     let mint_to_ctx = CpiContext::new(
         ctx.accounts.token_program.to_account_info(),
-        MintTo {
+        anchor_spl::token_2022::MintTo {
             mint: ctx.accounts.ticket_mint.to_account_info(),
             to: ctx.accounts.buyer_ticket_account.to_account_info(),
             authority: ctx.accounts.buyer.to_account_info(),
         },
     );
-    mint_to(mint_to_ctx, 1)?; // Mint 1 NFT
+    anchor_spl::token_2022::mint_to(mint_to_ctx, 1)?; // Mint 1 NFT
     
-    // 7. Set mint authority to ticket authority (to prevent unauthorized transfers)
+    // 8. Set mint authority to ticket authority (to prevent unauthorized transfers)
     let set_authority_ctx = CpiContext::new(
         ctx.accounts.token_program.to_account_info(),
-        SetAuthority {
+        anchor_spl::token_2022::SetAuthority {
             current_authority: ctx.accounts.buyer.to_account_info(),
             account_or_mint: ctx.accounts.ticket_mint.to_account_info(),
         },
     );
-    let authority_seeds = &[
-        TicketAuthority::SEED_PREFIX,
-        &[ctx.accounts.ticket_authority.bump],
-    ];
-    let signer_seeds = &[&authority_seeds[..]];
-    set_authority(
-        CpiContext::new_with_signer(
-            ctx.accounts.token_program.to_account_info(),
-            set_authority_ctx.accounts,
-            signer_seeds,
-        ),
-        anchor_spl::token::spl_token::instruction::AuthorityType::MintTokens,
+    anchor_spl::token_2022::set_authority(
+        set_authority_ctx,
+        anchor_spl::token_2022::spl_token_2022::instruction::AuthorityType::MintTokens,
         Some(ctx.accounts.ticket_authority.key()),
     )?;
     

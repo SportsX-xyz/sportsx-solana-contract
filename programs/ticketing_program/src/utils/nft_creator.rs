@@ -7,10 +7,10 @@ impl NftCreator {
     /// 创建 Token 2022 NFT 元数据
     /// 这个函数会调用 Token 2022 程序来创建带有元数据的 NFT
     pub fn create_token2022_nft_metadata(
-        _mint: &AccountInfo,
-        _token_program: &AccountInfo,
-        _system_program: &AccountInfo,
-        _rent: &AccountInfo,
+        mint: &AccountInfo,
+        token_program: &AccountInfo,
+        system_program: &AccountInfo,
+        rent: &AccountInfo,
         name: String,
         symbol: String,
         uri: String,
@@ -19,18 +19,15 @@ impl NftCreator {
         event_id: String,
         ticket_uuid: String,
     ) -> Result<()> {
-        // TODO: 实现 Token 2022 元数据创建逻辑
-        // 这需要调用 Token 2022 程序的以下指令：
-        // 1. create_initialize_metadata_pointer_instruction - 启用元数据指针扩展
-        // 2. create_initialize_instruction - 初始化元数据 (name, symbol, uri)
-        // 3. create_update_field_instruction - 添加自定义字段 (座位号, 检票状态等)
-        
         msg!(
             "Creating Token 2022 NFT with metadata: name={}, symbol={}, uri={}, seat={}:{}, event={}, uuid={}", 
             name, symbol, uri, seat_row, seat_column, event_id, ticket_uuid
         );
         
-        // 目前只是记录日志，实际实现需要调用 Token 2022 CPI
+        // For now, we'll create a basic mint without metadata extensions
+        // The mint will be created by the calling instruction
+        // TODO: Implement Token 2022 metadata extensions when needed
+        
         Ok(())
     }
     

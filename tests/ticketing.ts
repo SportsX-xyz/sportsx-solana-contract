@@ -63,6 +63,7 @@ describe("SportsX Ticketing Program", () => {
   let ticketPda: PublicKey;
   let listingPda: PublicKey;
   let checkinAuthorityPda: PublicKey;
+  let ticketAuthorityPda: PublicKey;
   
   // NFT related
   let ticketMintKeypair: Keypair;
@@ -175,6 +176,11 @@ describe("SportsX Ticketing Program", () => {
       program.programId
     );
 
+    [ticketAuthorityPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("ticket_authority")],
+      program.programId
+    );
+
   });
 
   describe("Platform Management", () => {
@@ -241,6 +247,28 @@ describe("SportsX Ticketing Program", () => {
       config = await program.account.platformConfig.fetch(platformConfig);
       assert.equal(config.isPaused, false);
     });
+
+    it("Initializes ticket authority", async () => {
+      try {
+        // Check if ticket authority is already initialized
+        await program.account.ticketAuthority.fetch(ticketAuthorityPda);
+        console.log("  ✓ Ticket authority already initialized");
+      } catch (e) {
+        // If not initialized, initialize it
+        await program.methods
+          .initializeTicketAuthority()
+          .accounts({
+            ticketAuthority: ticketAuthorityPda,
+            authority: deployer.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .rpc();
+
+        const ticketAuthority = await program.account.ticketAuthority.fetch(ticketAuthorityPda);
+        assert.isDefined(ticketAuthority.bump);
+        console.log("  ✓ Ticket authority initialized");
+      }
+    });
   });
 
   describe("Event Management", () => {
@@ -306,8 +334,16 @@ describe("SportsX Ticketing Program", () => {
     it("Purchases a ticket with backend authorization", async () => {
       const ticketUuid = randomUUID().replace(/-/g, '');  // 32 bytes (no hyphens)
 
-      // Create ticket NFT mint (buyer provides the keypair)
-      ticketMintKeypair = Keypair.generate();
+      // Create ticket NFT mint using PDA instead of keypair
+      [ticketMintPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("ticket_mint"),
+          Buffer.from(EVENT_ID),
+          Buffer.from(ticketUuid),
+        ],
+        program.programId
+      );
+      ticketMintKeypair = null; // We don't need a keypair for PDA
       
       // PDA uses UUID instead of sequence number
       [ticketPda] = PublicKey.findProgramAddressSync(
@@ -319,11 +355,40 @@ describe("SportsX Ticketing Program", () => {
         program.programId
       );
 
+      // Debug: Print all account public keys
+      console.log("=== Debug Account Public Keys ===");
+      console.log("buyer.publicKey:", buyer.publicKey.toString());
+      console.log("backendAuthority.publicKey:", backendAuthority.publicKey.toString());
+      console.log("ticketMintPda:", ticketMintPda.toString());
+      console.log("organizer.publicKey:", organizer.publicKey.toString());
+      console.log("deployer.publicKey:", deployer.publicKey.toString());
+      console.log("eventPda:", eventPda.toString());
+      console.log("ticketPda:", ticketPda.toString());
+      console.log("nonceTracker:", nonceTracker.toString());
+      console.log("platformConfig:", platformConfig.toString());
+      console.log("ticketAuthorityPda:", ticketAuthorityPda.toString());
+      console.log("usdcMint:", usdcMint.toString());
+      console.log("buyerUsdcAccount:", buyerUsdcAccount.toString());
+      console.log("platformUsdcAccount:", platformUsdcAccount.toString());
+      console.log("organizerUsdcAccount:", organizerUsdcAccount.toString());
+      console.log("==================================");
+
       // Create buyer's ticket NFT token account
       buyerTicketAccount = await getAssociatedTokenAddress(
-        ticketMintKeypair.publicKey,
+        ticketMintPda,
         buyer.publicKey
       );
+
+      // Debug: Print additional account public keys
+      console.log("buyerTicketAccount:", buyerTicketAccount.toString());
+      console.log("TOKEN_2022_PROGRAM_ID:", TOKEN_2022_PROGRAM_ID.toString());
+      console.log("SYSVAR_RENT_PUBKEY:", SYSVAR_RENT_PUBKEY.toString());
+      console.log("SystemProgram.programId:", SystemProgram.programId.toString());
+      console.log("anchor.utils.token.ASSOCIATED_PROGRAM_ID:", anchor.utils.token.ASSOCIATED_PROGRAM_ID.toString());
+      console.log("==================================");
+
+      // Create the mint account (this will be done by the program)
+      // The program will handle mint creation and set mint authority
       
       // Token 2022 will handle metadata internally
 
@@ -336,6 +401,13 @@ describe("SportsX Ticketing Program", () => {
       const platformBalanceBefore = (
         await getAccount(provider.connection, platformUsdcAccount)
       ).amount;
+
+      // Debug: Print signers
+      console.log("=== Debug Signers ===");
+      console.log("buyer:", buyer.publicKey.toString());
+      console.log("backendAuthority:", backendAuthority.publicKey.toString());
+      console.log("ticketMintPda:", ticketMintPda.toString());
+      console.log("====================");
 
       await program.methods
         .purchaseTicket(
@@ -353,7 +425,7 @@ describe("SportsX Ticketing Program", () => {
           ticket: ticketPda,
           nonceTracker,
           buyer: buyer.publicKey,
-          ticketMint: ticketMintKeypair.publicKey,
+          ticketMint: ticketMintPda,
           buyerTicketAccount,
           rent: SYSVAR_RENT_PUBKEY,
           buyerUsdcAccount,
@@ -363,8 +435,9 @@ describe("SportsX Ticketing Program", () => {
           tokenProgram: TOKEN_2022_PROGRAM_ID,
           associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
+          ticketAuthority: ticketAuthorityPda,
         })
-        .signers([buyer, backendAuthority, ticketMintKeypair])
+        .signers([buyer, backendAuthority])
         .rpc();
 
       // Verify ticket created
@@ -453,6 +526,7 @@ describe("SportsX Ticketing Program", () => {
           tokenProgram: TOKEN_2022_PROGRAM_ID, 
           associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
+          ticketAuthority: ticketAuthorityPda,
         })
         .remainingAccounts([
           { pubkey: getPofWalletPda(buyer.publicKey), isWritable: true, isSigner: false },
@@ -525,7 +599,7 @@ describe("SportsX Ticketing Program", () => {
           nonceTracker,
           buyer: buyer2.publicKey,
           originalSeller: buyer.publicKey,
-          ticketMint: ticketMintKeypair.publicKey,
+          ticketMint: ticketMintPda,
           sellerTicketAccount: buyerTicketAccount,
           buyerTicketAccount: buyer2TicketAccount,
           buyerUsdcAccount: buyer2UsdcAccount,
@@ -601,7 +675,7 @@ describe("SportsX Ticketing Program", () => {
           platformConfig, event: eventPda, listing: newListingPda,
           ticket: ticketPda, nonceTracker,
           buyer: buyer.publicKey, originalSeller: buyer2.publicKey,
-          ticketMint: ticketMintKeypair.publicKey,
+          ticketMint: ticketMintPda,
           sellerTicketAccount: buyer2TicketAccount,
           buyerTicketAccount: buyerTicketAccountForResale,
           buyerUsdcAccount, sellerUsdcAccount: buyer2UsdcAccount,
@@ -648,7 +722,7 @@ describe("SportsX Ticketing Program", () => {
           listing: newListingPda,
           ticket: ticketPda,
           seller: buyer2.publicKey,
-          ticketMint: ticketMintKeypair.publicKey,
+          ticketMint: ticketMintPda,
           programTicketAccount: buyerTicketAccount, // This should be program's account in real scenario
           sellerTicketAccount: buyerTicketAccount,
         })
@@ -695,7 +769,7 @@ describe("SportsX Ticketing Program", () => {
             event: eventPda,
             checkinAuthority: checkinAuthorityPda,
             ticket: ticketPda,
-            ticketMint: ticketMintKeypair.publicKey,
+            ticketMint: ticketMintPda,
             ticketOwnerTokenAccount: buyerTicketAccount,
             operator: checkinOperator.publicKey,
             tokenProgram: TOKEN_2022_PROGRAM_ID,
@@ -767,6 +841,7 @@ describe("SportsX Ticketing Program", () => {
             tokenProgram: TOKEN_2022_PROGRAM_ID,
             associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
+            ticketAuthority: ticketAuthorityPda,
           })
           .signers([buyer2, backendAuthority, ticketMint4Keypair])
           .rpc();
@@ -796,7 +871,7 @@ describe("SportsX Ticketing Program", () => {
             event: eventPda,
             checkinAuthority: checkinAuthorityPda,
             ticket: ticketPda,
-            ticketMint: ticketMintKeypair.publicKey,
+            ticketMint: ticketMintPda,
             ticketOwnerTokenAccount: buyerTicketAccount,
             operator: checkinOperator.publicKey,
             tokenProgram: TOKEN_2022_PROGRAM_ID,
@@ -853,6 +928,7 @@ describe("SportsX Ticketing Program", () => {
           tokenProgram: TOKEN_2022_PROGRAM_ID,
           associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
+          ticketAuthority: ticketAuthorityPda,
         })
         .signers([buyer2, backendAuthority, ticketMint3Keypair])
         .rpc();
@@ -887,7 +963,7 @@ describe("SportsX Ticketing Program", () => {
             event: eventPda,
             checkinAuthority: checkinAuthorityPda,
             ticket: ticketPda,
-            ticketMint: ticketMintKeypair.publicKey,
+            ticketMint: ticketMintPda,
             ticketOwnerTokenAccount: buyerTicketAccount,
             operator: checkinOperator.publicKey,
             tokenProgram: TOKEN_2022_PROGRAM_ID,
