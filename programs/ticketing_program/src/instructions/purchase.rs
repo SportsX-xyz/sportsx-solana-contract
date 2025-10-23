@@ -5,6 +5,8 @@ use anchor_spl::{
     associated_token::AssociatedToken,
 };
 use spl_token_2022::extension::metadata_pointer::instruction as metadata_pointer_instruction;
+use spl_token_2022::extension::ExtensionType;
+use spl_token_2022::state::Mint as StateMint;
 use spl_token_metadata_interface::instruction as metadata_instruction;
 use crate::state::*;
 use crate::errors::ErrorCode;
@@ -64,7 +66,7 @@ pub struct PurchaseTicket<'info> {
         seeds = [b"mint_authority"],
         bump
     )]
-    pub mint_authority: AccountInfo<'info>,
+    pub mint_authority: UncheckedAccount<'info>,
     
     /// CHECK: Buyer's ticket NFT token account (will be created if not exists)
     #[account(mut)]
@@ -209,10 +211,27 @@ pub fn purchase_ticket<'info>(
     ticket.original_price = ticket_price;
     ticket.bump = ctx.bumps.ticket;
     
-    // Step 1: 系统合约创建账户ticket_mint
-    let mint_space = 82; // Standard mint size for Token 2022
+    // Step 1: System program creates ticket_mint account with metadata pointer extension
+    let space = match ExtensionType::try_calculate_account_len::<StateMint>(&[ExtensionType::MetadataPointer]) {
+        Ok(space) => space,
+        Err(_) => {
+            return Err(ErrorCode::InvalidMintAccountSpace.into());
+        }
+    };
+
+    // This is the space required for the metadata account.
+    // We put the meta data into the mint account at the end so we
+    // don't need to create and additional account.
+    let meta_data_space = 250;
+
     let rent = Rent::from_account_info(&ctx.accounts.rent)?;
-    let mint_rent = rent.minimum_balance(mint_space);
+    let lamports_required = rent.minimum_balance(space + meta_data_space);
+
+    msg!(
+        "Create Mint and metadata account size and cost: {} lamports: {}",
+        space as u64,
+        lamports_required
+    );
     
     anchor_lang::system_program::create_account(
         CpiContext::new(
@@ -222,8 +241,8 @@ pub fn purchase_ticket<'info>(
                 to: ctx.accounts.ticket_mint.to_account_info(),
             },
         ),
-        mint_rent,
-        mint_space as u64,
+        lamports_required,
+        (space + meta_data_space) as u64,
         &anchor_spl::token_2022::ID,
     )?;
     
@@ -251,7 +270,7 @@ pub fn purchase_ticket<'info>(
         &initialize_pointer_ix,
         &[
             ctx.accounts.ticket_mint.to_account_info(),
-            ctx.accounts.buyer.to_account_info(),
+            ctx.accounts.mint_authority.to_account_info(),
         ],
     )?;
     

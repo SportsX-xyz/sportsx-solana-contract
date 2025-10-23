@@ -64,5 +64,8 @@ pub enum ErrorCode {
     
     #[msg("Invalid ticket PDA in authorization")]
     InvalidTicketPda,
+    
+    #[msg("Invalid mint account space")]
+    InvalidMintAccountSpace,
 }
 
