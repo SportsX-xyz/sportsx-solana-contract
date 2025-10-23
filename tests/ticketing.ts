@@ -6,6 +6,7 @@ import {
   Keypair,
   SystemProgram,
   LAMPORTS_PER_SOL,
+  SYSVAR_RENT_PUBKEY,
 } from "@solana/web3.js";
 import {
   TOKEN_PROGRAM_ID,
@@ -354,7 +355,7 @@ describe("SportsX Ticketing Program", () => {
           buyer: buyer.publicKey,
           ticketMint: ticketMintKeypair.publicKey,
           buyerTicketAccount,
-          rent: anchor.utils.token.SYSVAR_RENT_PUBKEY,
+          rent: SYSVAR_RENT_PUBKEY,
           buyerUsdcAccount,
           platformUsdcAccount,
           organizerUsdcAccount,
@@ -445,6 +446,7 @@ describe("SportsX Ticketing Program", () => {
           buyer: buyer.publicKey, 
           ticketMint: ticketMint2Keypair.publicKey,
           buyerTicketAccount: buyerTicket2Account,
+          rent: SYSVAR_RENT_PUBKEY,
           buyerUsdcAccount,
           platformUsdcAccount, organizerUsdcAccount,
           usdcMint,
@@ -693,7 +695,10 @@ describe("SportsX Ticketing Program", () => {
             event: eventPda,
             checkinAuthority: checkinAuthorityPda,
             ticket: ticketPda,
+            ticketMint: ticketMintKeypair.publicKey,
+            ticketOwnerTokenAccount: buyerTicketAccount,
             operator: checkinOperator.publicKey,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
           })
           .signers([checkinOperator])
           .rpc();
@@ -882,7 +887,10 @@ describe("SportsX Ticketing Program", () => {
             event: eventPda,
             checkinAuthority: checkinAuthorityPda,
             ticket: ticketPda,
+            ticketMint: ticketMintKeypair.publicKey,
+            ticketOwnerTokenAccount: buyerTicketAccount,
             operator: checkinOperator.publicKey,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
           })
           .signers([checkinOperator])
           .rpc();

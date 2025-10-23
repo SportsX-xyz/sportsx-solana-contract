@@ -221,7 +221,7 @@ pub fn purchase_ticket<'info>(
         ticket_uuid.clone(),
     )?;
     
-    // 6. Mint NFT to buyer
+    // 6. Mint NFT to buyer (using buyer as mint authority initially)
     let mint_to_ctx = CpiContext::new(
         ctx.accounts.token_program.to_account_info(),
         MintTo {
