@@ -64,6 +64,7 @@ describe("SportsX Ticketing Program", () => {
   let listingPda: PublicKey;
   let checkinAuthorityPda: PublicKey;
   let ticketAuthorityPda: PublicKey;
+  let mintAuthority: PublicKey;
   
   // NFT related
   let ticketMintKeypair: Keypair;
@@ -181,6 +182,11 @@ describe("SportsX Ticketing Program", () => {
       program.programId
     );
 
+    [mintAuthority] = PublicKey.findProgramAddressSync(
+      [Buffer.from("mint_authority")],
+      program.programId
+    );
+
   });
 
   describe("Platform Management", () => {
@@ -280,6 +286,8 @@ describe("SportsX Ticketing Program", () => {
       await program.methods
         .createEvent(
           EVENT_ID,
+          "Test Event Name",
+          "TEST",
           "ipfs://test-metadata",
           new BN(startTime),
           new BN(endTime),
@@ -419,6 +427,7 @@ describe("SportsX Ticketing Program", () => {
           nonceTracker,
           buyer: buyer.publicKey,
           ticketMint: ticketMint,
+          mintAuthority: mintAuthority,
           buyerTicketAccount,
           rent: SYSVAR_RENT_PUBKEY,
           buyerUsdcAccount,
@@ -512,11 +521,13 @@ describe("SportsX Ticketing Program", () => {
           ticket: ticket2Pda, nonceTracker,
           buyer: buyer.publicKey, 
           ticketMint: ticketMint2Keypair.publicKey,
+          mintAuthority: mintAuthority,
           buyerTicketAccount: buyerTicket2Account,
           rent: SYSVAR_RENT_PUBKEY,
           buyerUsdcAccount,
           platformUsdcAccount, organizerUsdcAccount,
           usdcMint,
+          usdcTokenProgram: TOKEN_PROGRAM_ID,
           tokenProgram: TOKEN_2022_PROGRAM_ID, 
           associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
@@ -827,11 +838,14 @@ describe("SportsX Ticketing Program", () => {
             nonceTracker,
             buyer: buyer2.publicKey,
             ticketMint: ticketMint4Keypair.publicKey,
+            mintAuthority: mintAuthority,
             buyerTicketAccount: buyer2Ticket4Account,
+            rent: SYSVAR_RENT_PUBKEY,
             buyerUsdcAccount: buyer2UsdcAccount,
             platformUsdcAccount,
             organizerUsdcAccount,
             usdcMint,
+            usdcTokenProgram: TOKEN_PROGRAM_ID,
             tokenProgram: TOKEN_2022_PROGRAM_ID,
             associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
@@ -915,10 +929,13 @@ describe("SportsX Ticketing Program", () => {
           ticket: newTicketPda, nonceTracker,
           buyer: buyer2.publicKey, 
           ticketMint: ticketMint3Keypair.publicKey,
+          mintAuthority: mintAuthority,
           buyerTicketAccount: buyer2Ticket3Account,
+          rent: SYSVAR_RENT_PUBKEY,
           buyerUsdcAccount: buyer2UsdcAccount,
           platformUsdcAccount, organizerUsdcAccount,
           usdcMint,
+          usdcTokenProgram: TOKEN_PROGRAM_ID,
           tokenProgram: TOKEN_2022_PROGRAM_ID,
           associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
           systemProgram: SystemProgram.programId,

@@ -73,6 +73,8 @@ pub mod ticketing_program {
     pub fn create_event(
         ctx: Context<CreateEvent>,
         event_id: String,
+        name: String,
+        symbol: String,
         metadata_uri: String,
         start_time: i64,
         end_time: i64,
@@ -84,6 +86,8 @@ pub mod ticketing_program {
         instructions::event::create_event(
             ctx,
             event_id,
+            name,
+            symbol,
             metadata_uri,
             start_time,
             end_time,

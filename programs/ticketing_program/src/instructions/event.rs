@@ -33,6 +33,8 @@ pub struct CreateEvent<'info> {
 pub fn create_event(
     ctx: Context<CreateEvent>,
     event_id: String,
+    name: String,
+    symbol: String,
     metadata_uri: String,
     start_time: i64,
     end_time: i64,
@@ -44,6 +46,8 @@ pub fn create_event(
     let event = &mut ctx.accounts.event;
     
     event.event_id = event_id;
+    event.name = name;
+    event.symbol = symbol;
     event.organizer = ctx.accounts.organizer.key();
     event.metadata_uri = metadata_uri;
     event.start_time = start_time;

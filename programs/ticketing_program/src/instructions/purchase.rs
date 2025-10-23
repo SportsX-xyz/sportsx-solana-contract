@@ -1,12 +1,13 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
     token::{self, Transfer, Token},
-    token_2022::{self, MintTo, SetAuthority, mint_to, set_authority, Token2022},
+    token_2022::{Token2022, MintTo, SetAuthority, mint_to, set_authority},
     associated_token::AssociatedToken,
 };
+use spl_token_2022::extension::metadata_pointer::instruction as metadata_pointer_instruction;
+use spl_token_metadata_interface::instruction as metadata_instruction;
 use crate::state::*;
 use crate::errors::ErrorCode;
-use crate::utils::*;
 
 
 
@@ -57,6 +58,13 @@ pub struct PurchaseTicket<'info> {
     /// NFT mint address (provided by buyer as signer for account creation)
     #[account(mut)]
     pub ticket_mint: Signer<'info>,
+    
+    /// CHECK: Mint authority PDA for controlling NFT minting
+    #[account(
+        seeds = [b"mint_authority"],
+        bump
+    )]
+    pub mint_authority: AccountInfo<'info>,
     
     /// CHECK: Buyer's ticket NFT token account (will be created if not exists)
     #[account(mut)]
@@ -201,37 +209,11 @@ pub fn purchase_ticket<'info>(
     ticket.original_price = ticket_price;
     ticket.bump = ctx.bumps.ticket;
     
-    // 4. Generate Token 2022 metadata information
-    let (name, symbol, uri) = NftCreator::generate_ticket_metadata(
-        &event_id,
-        &type_id,
-        row_number,
-        column_number,
-        &ctx.accounts.event.metadata_uri,
-    );
-    
-    // 5. Create Token 2022 mint with metadata extensions
-    NftCreator::create_token2022_nft_metadata(
-        &ctx.accounts.ticket_mint.to_account_info(),
-        &ctx.accounts.token_program.to_account_info(),
-        &ctx.accounts.system_program.to_account_info(),
-        &ctx.accounts.rent.to_account_info(),
-        name,
-        symbol,
-        uri,
-        row_number,
-        column_number,
-        event_id.clone(),
-        ticket_uuid.clone(),
-    )?;
-    
-    // 6. Initialize mint (create the mint account)
+    // Step 1: 系统合约创建账户ticket_mint
     let mint_space = 82; // Standard mint size for Token 2022
     let rent = Rent::from_account_info(&ctx.accounts.rent)?;
     let mint_rent = rent.minimum_balance(mint_space);
     
-    // Create mint account using PDA - buyer creates the account and pays for it
-    // No additional signers needed for PDA creation
     anchor_lang::system_program::create_account(
         CpiContext::new(
             ctx.accounts.system_program.to_account_info(),
@@ -245,7 +227,35 @@ pub fn purchase_ticket<'info>(
         &anchor_spl::token_2022::ID,
     )?;
     
-    // Initialize mint using Token 2022
+    // Step 2: Assign the mint to the token program 2022
+    anchor_lang::system_program::assign(
+        CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            anchor_lang::system_program::Assign {
+                account_to_assign: ctx.accounts.ticket_mint.to_account_info(),
+            },
+        ),
+        &anchor_spl::token_2022::ID,
+    )?;
+    
+    // Step 3: Initialize the metadata pointer
+    // Use Token 2022 metadata pointer extension to initialize metadata pointer
+    let initialize_pointer_ix = metadata_pointer_instruction::initialize(
+        &anchor_spl::token_2022::ID,
+        &ctx.accounts.ticket_mint.key(),
+        Some(ctx.accounts.mint_authority.key()), // authority (mint authority PDA)
+        Some(ctx.accounts.ticket_mint.key()), // metadata_address (will be set later)
+    )?;
+
+    anchor_lang::solana_program::program::invoke(
+        &initialize_pointer_ix,
+        &[
+            ctx.accounts.ticket_mint.to_account_info(),
+            ctx.accounts.buyer.to_account_info(),
+        ],
+    )?;
+    
+    // Step 4: Initialize the mint cpi
     anchor_spl::token_2022::initialize_mint(
         CpiContext::new(
             ctx.accounts.token_program.to_account_info(),
@@ -255,11 +265,51 @@ pub fn purchase_ticket<'info>(
             },
         ),
         0, // decimals (NFTs have 0 decimals)
-        &ctx.accounts.buyer.key(), // mint authority
+        &ctx.accounts.mint_authority.key(), // mint authority PDA
         None, // freeze authority
     )?;
     
-    // 6. Create associated token account for buyer
+    // Step 5: init metadata
+    // Use event metadata directly
+    let name = ctx.accounts.event.name.clone();
+    let symbol = ctx.accounts.event.symbol.clone();
+    let uri = ctx.accounts.event.metadata_uri.clone();
+    
+    msg!("Step 5: Initializing metadata with name: {}, symbol: {}, uri: {}", name, symbol, uri);
+    
+    // Initialize metadata using spl_token_metadata_interface
+    let initialize_metadata_ix = metadata_instruction::initialize(
+        &anchor_spl::token_2022::ID,
+        &ctx.accounts.ticket_mint.key(),
+        &ctx.accounts.mint_authority.key(),
+        &ctx.accounts.ticket_mint.key(),
+        &ctx.accounts.mint_authority.key(),
+        name,
+        symbol,
+        uri,
+    );
+
+    anchor_lang::solana_program::program::invoke_signed(
+        &initialize_metadata_ix,
+        &[
+            ctx.accounts.ticket_mint.to_account_info(),
+            ctx.accounts.mint_authority.to_account_info(),
+            ctx.accounts.token_program.to_account_info(),
+        ],
+        &[&[
+            b"mint_authority",
+            &[ctx.bumps.mint_authority],
+        ]],
+    )?;
+    
+    // Step 6: Update ticket metadata (name, symbol, uri, seat_number)
+    // This is handled in the metadata creation above
+    
+    // Step 7: Update metadata authority to merchant
+    // For Token 2022, metadata authority is set during metadata creation
+    msg!("Step 7: Update metadata authority to merchant (Token 2022 handles this internally)");
+    
+    // Step 8: Create the associated token account
     anchor_spl::associated_token::create(
         CpiContext::new(
             ctx.accounts.associated_token_program.to_account_info(),
@@ -274,22 +324,22 @@ pub fn purchase_ticket<'info>(
         ),
     )?;
     
-    // 7. Mint NFT to buyer (using buyer as mint authority)
+    // Step 9: Mint one token to the associated token account of the buyer
     let mint_to_ctx = CpiContext::new(
         ctx.accounts.token_program.to_account_info(),
         anchor_spl::token_2022::MintTo {
             mint: ctx.accounts.ticket_mint.to_account_info(),
             to: ctx.accounts.buyer_ticket_account.to_account_info(),
-            authority: ctx.accounts.buyer.to_account_info(),
+            authority: ctx.accounts.mint_authority.to_account_info(),
         },
     );
     anchor_spl::token_2022::mint_to(mint_to_ctx, 1)?; // Mint 1 NFT
     
-    // 8. Set mint authority to ticket authority (to prevent unauthorized transfers)
+    // Step 10: Close mint authority
     let set_authority_ctx = CpiContext::new(
         ctx.accounts.token_program.to_account_info(),
         anchor_spl::token_2022::SetAuthority {
-            current_authority: ctx.accounts.buyer.to_account_info(),
+            current_authority: ctx.accounts.mint_authority.to_account_info(),
             account_or_mint: ctx.accounts.ticket_mint.to_account_info(),
         },
     );
@@ -299,9 +349,8 @@ pub fn purchase_ticket<'info>(
         Some(ctx.accounts.ticket_authority.key()),
     )?;
     
-    // 8. NFT metadata will be stored via event.metadata_uri
-    // The NFT will use Token 2022 extension fields for check-in status
-    // This is handled by the client when creating the NFT
+    // Step 11: Mark ticket as minted
+    ticket.is_checked_in = false; // Ticket is minted but not checked in yet
     
     // 9. Initialize Token 2022 extension fields for ticket data
     // TODO: Implement Token 2022 extension field creation

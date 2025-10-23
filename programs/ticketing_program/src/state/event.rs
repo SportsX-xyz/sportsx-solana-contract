@@ -5,6 +5,12 @@ pub struct EventAccount {
     /// Event ID (max 32 chars)
     pub event_id: String,
     
+    /// Event name (max 50 chars)
+    pub name: String,
+    
+    /// Event symbol (max 10 chars)
+    pub symbol: String,
+    
     /// Event organizer
     pub organizer: Pubkey,
     
@@ -39,8 +45,8 @@ pub struct EventAccount {
 impl EventAccount {
     pub const SEED_PREFIX: &'static [u8] = b"event";
     
-    // 4+32 + 32 + 4+200 + 8 + 8 + 8 + 8 + 2 + 1 + 1 + 1 = 309 bytes
-    pub const SIZE: usize = 8 + 309;
+    // 4+32 + 4+50 + 4+10 + 32 + 4+200 + 8 + 8 + 8 + 8 + 2 + 1 + 1 + 1 = 373 bytes
+    pub const SIZE: usize = 8 + 373;
     
     pub fn is_active(&self) -> bool {
         self.status == 1
