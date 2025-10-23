@@ -335,7 +335,7 @@ describe("SportsX Ticketing Program", () => {
       const ticketUuid = randomUUID().replace(/-/g, '');  // 32 bytes (no hyphens)
 
       // Create ticket NFT mint using PDA instead of keypair
-      [ticketMintPda] = PublicKey.findProgramAddressSync(
+      const [ticketMintPda] = PublicKey.findProgramAddressSync(
         [
           Buffer.from("ticket_mint"),
           Buffer.from(EVENT_ID),

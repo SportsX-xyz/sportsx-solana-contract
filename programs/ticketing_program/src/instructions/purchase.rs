@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
     token::{self, Transfer},
-    token_2022::{self, MintTo, SetAuthority, mint_to, set_authority},
+    token_2022::{self, MintTo, SetAuthority, mint_to, set_authority, Token2022},
     associated_token::AssociatedToken,
 };
 use crate::state::*;
@@ -58,11 +58,8 @@ pub struct PurchaseTicket<'info> {
     #[account(mut)]
     pub ticket_mint: AccountInfo<'info>,
     
-    /// CHECK: Buyer's ticket NFT token account
-    #[account(
-        mut,
-        constraint = buyer_ticket_account.owner == &anchor_spl::token::ID,
-    )]
+    /// CHECK: Buyer's ticket NFT token account (will be created if not exists)
+    #[account(mut)]
     pub buyer_ticket_account: AccountInfo<'info>,
     
     /// CHECK: Rent sysvar for Token 2022 metadata
@@ -93,9 +90,12 @@ pub struct PurchaseTicket<'info> {
     pub usdc_mint: AccountInfo<'info>,
     
     
-    /// CHECK: Token program (supports both SPL Token and Token 2022)
-    pub token_program: AccountInfo<'info>,
+    /// Token 2022 program
+    #[account(address = anchor_spl::token_2022::ID)]
+    pub token_program: Program<'info, Token2022>,
     pub associated_token_program: Program<'info, AssociatedToken>,
+    /// System program
+    #[account(address = anchor_lang::system_program::ID)]
     pub system_program: Program<'info, System>,
     
     
@@ -224,7 +224,8 @@ pub fn purchase_ticket<'info>(
     
     // 6. Initialize mint (create the mint account)
     let mint_space = 82; // Standard mint size for Token 2022
-    let mint_rent = Rent::get()?.minimum_balance(mint_space);
+    let rent = Rent::from_account_info(&ctx.accounts.rent)?;
+    let mint_rent = rent.minimum_balance(mint_space);
     
     // Create mint account using PDA - buyer creates the account and pays for it
     // No additional signers needed for PDA creation
@@ -253,6 +254,21 @@ pub fn purchase_ticket<'info>(
         0, // decimals (NFTs have 0 decimals)
         &ctx.accounts.buyer.key(), // mint authority
         None, // freeze authority
+    )?;
+    
+    // 6. Create associated token account for buyer
+    anchor_spl::associated_token::create(
+        CpiContext::new(
+            ctx.accounts.associated_token_program.to_account_info(),
+            anchor_spl::associated_token::Create {
+                payer: ctx.accounts.buyer.to_account_info(),
+                associated_token: ctx.accounts.buyer_ticket_account.to_account_info(),
+                authority: ctx.accounts.buyer.to_account_info(),
+                mint: ctx.accounts.ticket_mint.to_account_info(),
+                system_program: ctx.accounts.system_program.to_account_info(),
+                token_program: ctx.accounts.token_program.to_account_info(),
+            },
+        ),
     )?;
     
     // 7. Mint NFT to buyer (using buyer as mint authority)

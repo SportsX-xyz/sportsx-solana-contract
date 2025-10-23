@@ -1,11 +1,11 @@
 use anchor_lang::prelude::*;
 
-/// NFT 创建辅助函数
+/// NFT creation helper functions
 pub struct NftCreator;
 
 impl NftCreator {
-    /// 创建 Token 2022 NFT 元数据
-    /// 这个函数会调用 Token 2022 程序来创建带有元数据的 NFT
+    /// Create Token 2022 NFT metadata
+    /// This function calls the Token 2022 program to create NFT with metadata
     pub fn create_token2022_nft_metadata(
         mint: &AccountInfo,
         token_program: &AccountInfo,
@@ -24,15 +24,44 @@ impl NftCreator {
             name, symbol, uri, seat_row, seat_column, event_id, ticket_uuid
         );
         
-        // For now, we'll create a basic mint without metadata extensions
-        // The mint will be created by the calling instruction
-        // TODO: Implement Token 2022 metadata extensions when needed
+        // For Token 2022, metadata is handled through the metadata pointer extension
+        // The actual metadata creation is done by the metadata program
+        // This function serves as a placeholder for future metadata program integration
+        
+        // Log the metadata information for debugging
+        msg!("NFT Metadata - Name: {}, Symbol: {}, URI: {}", name, symbol, uri);
+        msg!("Seat Info - Row: {}, Column: {}", seat_row, seat_column);
+        msg!("Event Info - Event ID: {}, Ticket UUID: {}", event_id, ticket_uuid);
+        
+        // TODO: Integrate with metadata program for actual metadata creation
+        // This would involve calling the metadata program to create the metadata account
+        
+        Ok(())
+    }
+
+    /// Initialize Token 2022 mint with metadata pointer
+    pub fn initialize_mint_with_metadata_pointer(
+        _mint: &AccountInfo,
+        _token_program: &AccountInfo,
+        _system_program: &AccountInfo,
+        _rent: &AccountInfo,
+        _mint_authority: &Pubkey,
+        metadata_pointer: &Pubkey,
+    ) -> Result<()> {
+        msg!("Initializing Token 2022 mint with metadata pointer");
+        
+        // For now, this is a simplified implementation
+        // The actual mint initialization is handled in the purchase instruction
+        // Token 2022 metadata pointer setup requires additional configuration
+        
+        msg!("Token 2022 mint will be initialized with metadata pointer: {}", metadata_pointer);
+        msg!("Note: Full metadata pointer implementation requires additional Token 2022 extensions");
         
         Ok(())
     }
     
     
-    /// 生成票据 NFT 的元数据信息
+    /// Generate ticket NFT metadata information
     pub fn generate_ticket_metadata(
         event_id: &str,
         ticket_type_id: &str,
@@ -43,7 +72,7 @@ impl NftCreator {
         let name = format!("SportsX Ticket - {} #{}", event_id, ticket_type_id);
         let symbol = "SPORTSX".to_string();
         
-        // 使用事件的 metadata_uri 作为基础，可以添加座位信息
+        // Use event metadata_uri as base, can add seat information
         let uri = if row_number > 0 && column_number > 0 {
             format!("{}?row={}&col={}", event_metadata_uri, row_number, column_number)
         } else {
