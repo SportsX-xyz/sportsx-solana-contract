@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
-    token::{self, Transfer},
+    token::{self, Transfer, Token},
     token_2022::{self, MintTo, SetAuthority, mint_to, set_authority, Token2022},
     associated_token::AssociatedToken,
 };
@@ -54,9 +54,9 @@ pub struct PurchaseTicket<'info> {
     #[account(mut)]
     pub buyer: Signer<'info>,
     
-    /// CHECK: NFT mint address (provided by buyer)
+    /// NFT mint address (provided by buyer as signer for account creation)
     #[account(mut)]
-    pub ticket_mint: AccountInfo<'info>,
+    pub ticket_mint: Signer<'info>,
     
     /// CHECK: Buyer's ticket NFT token account (will be created if not exists)
     #[account(mut)]
@@ -89,8 +89,11 @@ pub struct PurchaseTicket<'info> {
     /// CHECK: USDC mint address
     pub usdc_mint: AccountInfo<'info>,
     
+    /// USDC Token program (for USDC transfers)
+    #[account(address = anchor_spl::token::ID)]
+    pub usdc_token_program: Program<'info, Token>,
     
-    /// Token 2022 program
+    /// Token 2022 program (for NFT minting)
     #[account(address = anchor_spl::token_2022::ID)]
     pub token_program: Program<'info, Token2022>,
     pub associated_token_program: Program<'info, AssociatedToken>,
@@ -160,7 +163,7 @@ pub fn purchase_ticket<'info>(
     
     // 8. Transfer platform fee
     let transfer_platform_fee_ctx = CpiContext::new(
-        ctx.accounts.token_program.to_account_info(),
+        ctx.accounts.usdc_token_program.to_account_info(),
         Transfer {
             from: ctx.accounts.buyer_usdc_account.to_account_info(),
             to: ctx.accounts.platform_usdc_account.to_account_info(),
@@ -175,7 +178,7 @@ pub fn purchase_ticket<'info>(
         .ok_or(ErrorCode::ArithmeticOverflow)?;
     
     let transfer_organizer_ctx = CpiContext::new(
-        ctx.accounts.token_program.to_account_info(),
+        ctx.accounts.usdc_token_program.to_account_info(),
         Transfer {
             from: ctx.accounts.buyer_usdc_account.to_account_info(),
             to: ctx.accounts.organizer_usdc_account.to_account_info(),

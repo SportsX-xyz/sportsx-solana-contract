@@ -334,16 +334,9 @@ describe("SportsX Ticketing Program", () => {
     it("Purchases a ticket with backend authorization", async () => {
       const ticketUuid = randomUUID().replace(/-/g, '');  // 32 bytes (no hyphens)
 
-      // Create ticket NFT mint using PDA instead of keypair
-      const [ticketMintPda] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from("ticket_mint"),
-          Buffer.from(EVENT_ID),
-          Buffer.from(ticketUuid),
-        ],
-        program.programId
-      );
-      ticketMintKeypair = null; // We don't need a keypair for PDA
+      // Create ticket NFT mint using keypair
+      const ticketMintKeypair = Keypair.generate();
+      const ticketMint = ticketMintKeypair.publicKey;
       
       // PDA uses UUID instead of sequence number
       [ticketPda] = PublicKey.findProgramAddressSync(
@@ -359,7 +352,7 @@ describe("SportsX Ticketing Program", () => {
       console.log("=== Debug Account Public Keys ===");
       console.log("buyer.publicKey:", buyer.publicKey.toString());
       console.log("backendAuthority.publicKey:", backendAuthority.publicKey.toString());
-      console.log("ticketMintPda:", ticketMintPda.toString());
+      console.log("ticketMint:", ticketMint.toString());
       console.log("organizer.publicKey:", organizer.publicKey.toString());
       console.log("deployer.publicKey:", deployer.publicKey.toString());
       console.log("eventPda:", eventPda.toString());
@@ -375,7 +368,7 @@ describe("SportsX Ticketing Program", () => {
 
       // Create buyer's ticket NFT token account
       buyerTicketAccount = await getAssociatedTokenAddress(
-        ticketMintPda,
+        ticketMint,
         buyer.publicKey
       );
 
@@ -406,7 +399,7 @@ describe("SportsX Ticketing Program", () => {
       console.log("=== Debug Signers ===");
       console.log("buyer:", buyer.publicKey.toString());
       console.log("backendAuthority:", backendAuthority.publicKey.toString());
-      console.log("ticketMintPda:", ticketMintPda.toString());
+      console.log("ticketMint:", ticketMint.toString());
       console.log("====================");
 
       await program.methods
@@ -425,19 +418,20 @@ describe("SportsX Ticketing Program", () => {
           ticket: ticketPda,
           nonceTracker,
           buyer: buyer.publicKey,
-          ticketMint: ticketMintPda,
+          ticketMint: ticketMint,
           buyerTicketAccount,
           rent: SYSVAR_RENT_PUBKEY,
           buyerUsdcAccount,
           platformUsdcAccount,
           organizerUsdcAccount,
           usdcMint,
+          usdcTokenProgram: TOKEN_PROGRAM_ID,
           tokenProgram: TOKEN_2022_PROGRAM_ID,
           associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
           ticketAuthority: ticketAuthorityPda,
         })
-        .signers([buyer, backendAuthority])
+        .signers([buyer, backendAuthority, ticketMintKeypair])
         .rpc();
 
       // Verify ticket created
