@@ -9,8 +9,11 @@ use spl_token_2022::extension::ExtensionType;
 use spl_token_2022::state::Mint as StateMint;
 use spl_token_metadata_interface::instruction as metadata_instruction;
 use spl_token_metadata_interface::state::Field;
+use anchor_spl::token_interface::spl_pod::optional_keys::OptionalNonZeroPubkey;
 use crate::state::*;
 use crate::errors::ErrorCode;
+
+const MINT_AUTH_SEED: &[u8] = b"mint_authority";
 
 /// Purchase a ticket
 #[derive(Accounts)]
@@ -62,7 +65,7 @@ pub struct PurchaseTicket<'info> {
     
     /// CHECK: Mint authority PDA for controlling NFT minting
     #[account(
-        seeds = [b"mint_authority"],
+        seeds = [MINT_AUTH_SEED],
         bump
     )]
     pub mint_authority: UncheckedAccount<'info>,
@@ -136,9 +139,8 @@ pub fn purchase_ticket<'info>(
     
     // Define mint authority PDA signer seeds for reuse
     let bump = ctx.bumps.mint_authority;
-    let bump_array = Box::new([bump; 1]);
-    let seeds = vec![b"mint_authority", &bump_array[..]];
-    let signer_seeds = &[&seeds[..]];
+    let auth_seeds = &[MINT_AUTH_SEED, &[bump]];
+    let signer_seeds = &[&auth_seeds[..]];
     
     // 1. Check sales time
     require!(
@@ -380,11 +382,35 @@ pub fn purchase_ticket<'info>(
         signer_seeds,
     )?;
     
-    msg!("Step 6 completed: Updated metadata with seat {}:{}", row_number, column_number);
-    
+ 
     // Step 7: Update metadata authority to merchant
-    // For Token 2022, metadata authority is set during metadata creation
-    msg!("Step 7: Update metadata authority to merchant (Token 2022 handles this internally)");
+    msg!("Step 7: Update metadata authority to merchant");
+    
+    // Update authority to merchant (using organizer as merchant)
+    let new_authority = if ctx.accounts.event.organizer != Pubkey::default() {
+        OptionalNonZeroPubkey::try_from(Some(ctx.accounts.event.organizer)).unwrap()
+    } else {
+        OptionalNonZeroPubkey::try_from(None).unwrap()
+    };
+
+    let update_authority_ix = metadata_instruction::update_authority(
+        &anchor_spl::token_2022::ID,
+        &ctx.accounts.ticket_mint.key(),
+        &ctx.accounts.mint_authority.key(),
+        new_authority,
+    );
+
+    anchor_lang::solana_program::program::invoke_signed(
+        &update_authority_ix,
+        &[
+            ctx.accounts.ticket_mint.to_account_info(),
+            ctx.accounts.mint_authority.to_account_info(),
+            ctx.accounts.token_program.to_account_info(),
+        ],
+        signer_seeds,
+    )?;
+    
+    msg!("Step 7 completed: Updated metadata authority to merchant: {}", ctx.accounts.event.organizer);
     
     // Step 8: Create the associated token account
     anchor_spl::associated_token::create(
