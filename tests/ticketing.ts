@@ -377,7 +377,9 @@ describe("SportsX Ticketing Program", () => {
       // Create buyer's ticket NFT token account
       buyerTicketAccount = await getAssociatedTokenAddress(
         ticketMint,
-        buyer.publicKey
+        buyer.publicKey,
+        false,
+        TOKEN_2022_PROGRAM_ID
       );
 
       // Debug: Print additional account public keys

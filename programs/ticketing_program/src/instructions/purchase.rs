@@ -426,30 +426,43 @@ pub fn purchase_ticket<'info>(
             },
         ),
     )?;
+
+    msg!("Step 8 completed: Created associated token account");
     
+    msg!("Step 9: Minting one token to the associated token account of the buyer");
     // Step 9: Mint one token to the associated token account of the buyer
-    let mint_to_ctx = CpiContext::new(
+    let mint_to_ctx = CpiContext::new_with_signer(
         ctx.accounts.token_program.to_account_info(),
         anchor_spl::token_2022::MintTo {
             mint: ctx.accounts.ticket_mint.to_account_info(),
             to: ctx.accounts.buyer_ticket_account.to_account_info(),
             authority: ctx.accounts.mint_authority.to_account_info(),
         },
+        signer_seeds
     );
     anchor_spl::token_2022::mint_to(mint_to_ctx, 1)?; // Mint 1 NFT
+
+    msg!("Step 9 completed: Minted one token to the associated token account of the buyer");
     
+    msg!("Step 10: Closing mint authority");
     // Step 10: Close mint authority
-    let set_authority_ctx = CpiContext::new(
-        ctx.accounts.token_program.to_account_info(),
-        anchor_spl::token_2022::SetAuthority {
-            current_authority: ctx.accounts.mint_authority.to_account_info(),
-            account_or_mint: ctx.accounts.ticket_mint.to_account_info(),
-        },
-    );
-    anchor_spl::token_2022::set_authority(
-        set_authority_ctx,
-        anchor_spl::token_2022::spl_token_2022::instruction::AuthorityType::MintTokens,
-        Some(ctx.accounts.ticket_authority.key()),
+    let set_authority_ix = spl_token_2022::instruction::set_authority(
+        &anchor_spl::token_2022::ID,
+        &ctx.accounts.ticket_mint.key(),
+        None,
+        spl_token_2022::instruction::AuthorityType::MintTokens,
+        &ctx.accounts.mint_authority.key(),
+        &[&ctx.accounts.mint_authority.key()],
+    )?;
+
+    anchor_lang::solana_program::program::invoke_signed(
+        &set_authority_ix,
+        &[
+            ctx.accounts.ticket_mint.to_account_info(),
+            ctx.accounts.mint_authority.to_account_info(),
+            ctx.accounts.token_program.to_account_info(),
+        ],
+        signer_seeds,
     )?;
     
     // Step 11: Mark ticket as minted
