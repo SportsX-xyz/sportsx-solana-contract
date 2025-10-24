@@ -1,17 +1,16 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
     token::{self, Transfer, Token},
-    token_2022::{Token2022, MintTo, SetAuthority, mint_to, set_authority},
+    token_2022::Token2022,
     associated_token::AssociatedToken,
 };
 use spl_token_2022::extension::metadata_pointer::instruction as metadata_pointer_instruction;
 use spl_token_2022::extension::ExtensionType;
 use spl_token_2022::state::Mint as StateMint;
 use spl_token_metadata_interface::instruction as metadata_instruction;
+use spl_token_metadata_interface::state::Field;
 use crate::state::*;
 use crate::errors::ErrorCode;
-
-
 
 /// Purchase a ticket
 #[derive(Accounts)]
@@ -135,6 +134,12 @@ pub fn purchase_ticket<'info>(
     let clock = Clock::get()?;
     let current_time = clock.unix_timestamp;
     
+    // Define mint authority PDA signer seeds for reuse
+    let bump = ctx.bumps.mint_authority;
+    let bump_array = Box::new([bump; 1]);
+    let seeds = vec![b"mint_authority", &bump_array[..]];
+    let signer_seeds = &[&seeds[..]];
+    
     // 1. Check sales time
     require!(
         ctx.accounts.event.can_sell_tickets(current_time),
@@ -225,7 +230,7 @@ pub fn purchase_ticket<'info>(
     let meta_data_space = 250;
 
     let rent = Rent::from_account_info(&ctx.accounts.rent)?;
-    let lamports_required = rent.minimum_balance(space + meta_data_space);
+    let lamports_required =  Rent::get()?.minimum_balance(space + meta_data_space);
 
     msg!(
         "Create Mint and metadata account size and cost: {} lamports: {}",
@@ -242,7 +247,7 @@ pub fn purchase_ticket<'info>(
             },
         ),
         lamports_required,
-        (space + meta_data_space) as u64,
+        space as u64,
         &anchor_spl::token_2022::ID,
     )?;
     
@@ -315,14 +320,67 @@ pub fn purchase_ticket<'info>(
             ctx.accounts.mint_authority.to_account_info(),
             ctx.accounts.token_program.to_account_info(),
         ],
-        &[&[
-            b"mint_authority",
-            &[ctx.bumps.mint_authority],
-        ]],
+        signer_seeds,
     )?;
     
-    // Step 6: Update ticket metadata (name, symbol, uri, seat_number)
-    // This is handled in the metadata creation above
+    // Step 6: Update ticket metadata (name, symbol, uri)
+    msg!("Step 6: Updating ticket metadata with seat information");
+    
+    // Update name 
+    let update_name_ix = metadata_instruction::update_field(
+        &anchor_spl::token_2022::ID,
+        &ctx.accounts.ticket_mint.key(),
+        &ctx.accounts.mint_authority.key(),
+        Field::Name,
+        ctx.accounts.event.name.clone(),
+    );
+    anchor_lang::solana_program::program::invoke_signed(
+        &update_name_ix,
+        &[
+            ctx.accounts.ticket_mint.to_account_info(),
+            ctx.accounts.mint_authority.to_account_info(),
+            ctx.accounts.token_program.to_account_info(),
+        ],
+        signer_seeds,
+    )?;
+    
+    // Update symbol 
+    let update_symbol_ix = metadata_instruction::update_field(
+        &anchor_spl::token_2022::ID,
+        &ctx.accounts.ticket_mint.key(),
+        &ctx.accounts.mint_authority.key(),
+        Field::Symbol,
+        ctx.accounts.event.symbol.clone(),
+    );
+    anchor_lang::solana_program::program::invoke_signed(
+        &update_symbol_ix,
+        &[
+            ctx.accounts.ticket_mint.to_account_info(),
+            ctx.accounts.mint_authority.to_account_info(),
+            ctx.accounts.token_program.to_account_info(),
+        ],
+        signer_seeds,
+    )?;
+    
+    // Update URI 
+    let update_uri_ix = metadata_instruction::update_field(
+        &anchor_spl::token_2022::ID,
+        &ctx.accounts.ticket_mint.key(),
+        &ctx.accounts.mint_authority.key(),
+        Field::Uri,
+        ctx.accounts.event.metadata_uri.clone(),
+    );
+    anchor_lang::solana_program::program::invoke_signed(
+        &update_uri_ix,
+        &[
+            ctx.accounts.ticket_mint.to_account_info(),
+            ctx.accounts.mint_authority.to_account_info(),
+            ctx.accounts.token_program.to_account_info(),
+        ],
+        signer_seeds,
+    )?;
+    
+    msg!("Step 6 completed: Updated metadata with seat {}:{}", row_number, column_number);
     
     // Step 7: Update metadata authority to merchant
     // For Token 2022, metadata authority is set during metadata creation
