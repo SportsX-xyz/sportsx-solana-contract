@@ -18,7 +18,7 @@ TICKET_AUTHORITY_PDA=5qSt1JKvdo5zwx8FZCd74ENz3hwHsU1xdeiDPkKBh8Hy
 ## 管理账户地址
 FEE_RECEIVER=F3muW7SHCjRWz9gPE639hkekbW2YxNUPA4r6mefZvzqx
 EVENT_ADMIN=DsSBRCNzwNTsYeh6zyQqqPJbQVBprPUaVmaPuegaeQBS
-BACKEND_AUTHORITY=GfuCzHtUXttb4MjwUL9EGtcgxrYZekfMmJi9fzHLu2qQ
+BACKEND_AUTHORITY=DsSBRCNzwNTsYeh6zyQqqPJbQVBprPUaVmaPuegaeQBS
 
 ## 部署信息
 NETWORK=devnet
@@ -35,3 +35,18 @@ EXPLORER=https://explorer.solana.com/?cluster=devnet
 - 交易签名: 3XudJXZx6pdbUji6p69PhjHYvMCXmS1qsqMgGUwLmxpoDaXy1o6rgGi4xCcboPcZ5scspEeDLE8m4n4A2UEjW1xE
 - 升级内容: 添加 ATA 验证，修复 USDC 账户安全验证
 - 状态: ✅ 升级成功
+
+🔄 Backend Authority 更新 - 2024-12-19
+- 交易签名: 3b56kNsuS3SsJsGmrYnNgaxBSAX363ex4YKmLXmhoQTUH8EaCtp1wweJnMRPj7vkH8FQQX54aVwcyj8SdVcaHTby
+- 更新内容: Backend Authority 从 GfuCzHtUXttb4MjwUL9EGtcgxrYZekfMmJi9fzHLu2qQ 更新为 DsSBRCNzwNTsYeh6zyQqqPJbQVBprPUaVmaPuegaeQBS
+- 状态: ✅ 更新成功
+
+
+平台配置账户 ✅
+地址: gfWzPqLG24zSgVmnLdNzQRCoYjfRGWTyDnCQ4RZDe33
+类型: Platform Config
+其他账户 ✅
+门票权限账户 (5qSt1JKvdo5zwx8FZCd74ENz3hwHsU1xdeiDPkKBh8Hy)
+Nonce跟踪账户 (7M89JDEvhPPAjrgQ5xfWdbmT3ec1KZAQUFk3HqsrVYMw)
+检票权限账户 (6mL6gPPdq2k7LYyAi5majZ6diYeJC5RCiyiF4EzPzGNW)
+可能的门票或挂单账户 (BqtCoZyjEr5ZfrmnVp4PRiNzsMQnr4ur6pQbTcBPNEAq)
