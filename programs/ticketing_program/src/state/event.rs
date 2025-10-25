@@ -2,8 +2,8 @@ use anchor_lang::prelude::*;
 
 #[account]
 pub struct EventAccount {
-    /// Event ID (max 32 chars)
-    pub event_id: String,
+    /// Event ID (32 bytes)
+    pub event_id: [u8; 32],
     
     /// Event name (max 50 chars)
     pub name: String,
@@ -45,8 +45,8 @@ pub struct EventAccount {
 impl EventAccount {
     pub const SEED_PREFIX: &'static [u8] = b"event";
     
-    // 4+32 + 4+50 + 4+10 + 32 + 4+200 + 8 + 8 + 8 + 8 + 2 + 1 + 1 + 1 = 373 bytes
-    pub const SIZE: usize = 8 + 373;
+    // 32 + 4+50 + 4+10 + 32 + 4+200 + 8 + 8 + 8 + 8 + 2 + 1 + 1 + 1 = 341 bytes
+    pub const SIZE: usize = 8 + 341;
     
     pub fn is_active(&self) -> bool {
         self.status == 1

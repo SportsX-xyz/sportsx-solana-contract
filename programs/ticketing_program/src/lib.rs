@@ -139,9 +139,9 @@ pub mod ticketing_program {
     ) -> Result<()> {
         instructions::purchase::purchase_ticket(
             ctx,
-            event_id,
+            event_id.as_bytes().try_into().unwrap(),
             type_id,
-            ticket_uuid,
+            ticket_uuid.as_bytes().try_into().unwrap(),
             ticket_price,
             row_number,
             column_number,

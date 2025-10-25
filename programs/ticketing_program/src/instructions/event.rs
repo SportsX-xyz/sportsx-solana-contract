@@ -45,7 +45,7 @@ pub fn create_event(
 ) -> Result<()> {
     let event = &mut ctx.accounts.event;
     
-    event.event_id = event_id;
+    event.event_id = event_id.as_bytes().try_into().unwrap();
     event.name = name;
     event.symbol = symbol;
     event.organizer = ctx.accounts.organizer.key();
@@ -59,7 +59,7 @@ pub fn create_event(
     event.status = 1; // Active by default
     event.bump = ctx.bumps.event;
     
-    msg!("Event created in Active status: {}", event.event_id);
+    msg!("Event created in Active status: {:?}", event.event_id);
     
     Ok(())
 }

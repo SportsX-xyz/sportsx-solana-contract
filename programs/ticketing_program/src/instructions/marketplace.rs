@@ -10,7 +10,7 @@ use crate::errors::ErrorCode;
 #[derive(Accounts)]
 pub struct ListTicket<'info> {
     #[account(
-        seeds = [EventAccount::SEED_PREFIX, ticket.event_id.as_bytes()],
+        seeds = [EventAccount::SEED_PREFIX, &ticket.event_id],
         bump = event.bump
     )]
     pub event: Account<'info, EventAccount>,
@@ -82,7 +82,7 @@ pub struct BuyListedTicket<'info> {
     pub platform_config: Account<'info, PlatformConfig>,
     
     #[account(
-        seeds = [EventAccount::SEED_PREFIX, ticket.event_id.as_bytes()],
+        seeds = [EventAccount::SEED_PREFIX, &ticket.event_id],
         bump = event.bump
     )]
     pub event: Account<'info, EventAccount>,

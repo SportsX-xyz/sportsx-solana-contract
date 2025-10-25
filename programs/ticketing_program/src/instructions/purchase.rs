@@ -17,7 +17,7 @@ const MINT_AUTH_SEED: &[u8] = b"mint_authority";
 
 /// Purchase a ticket
 #[derive(Accounts)]
-#[instruction(event_id: String, type_id: String, ticket_uuid: String)]
+#[instruction(event_id: [u8; 32], type_id: String, ticket_uuid: [u8; 32])]
 pub struct PurchaseTicket<'info> {
     #[account(
         seeds = [PlatformConfig::SEED_PREFIX],
@@ -30,7 +30,7 @@ pub struct PurchaseTicket<'info> {
     pub backend_authority: Signer<'info>,
     
     #[account(
-        seeds = [EventAccount::SEED_PREFIX, event_id.as_bytes()],
+        seeds = [EventAccount::SEED_PREFIX, &event_id],
         bump = event.bump,
         constraint = event.is_active() @ ErrorCode::EventNotActive
     )]
@@ -42,8 +42,8 @@ pub struct PurchaseTicket<'info> {
         space = TicketAccount::SIZE,
         seeds = [
             TicketAccount::SEED_PREFIX,
-            event_id.as_bytes(),
-            ticket_uuid.as_bytes()
+            &event_id,
+            &ticket_uuid
         ],
         bump
     )]
@@ -127,9 +127,9 @@ pub struct PurchaseTicket<'info> {
 
 pub fn purchase_ticket<'info>(
     ctx: Context<'_, '_, '_, 'info, PurchaseTicket<'info>>,
-    event_id: String,
+    event_id: [u8; 32],
     type_id: String,
-    ticket_uuid: String,
+    ticket_uuid: [u8; 32],
     ticket_price: u64,
     row_number: u16,
     column_number: u16,
@@ -206,9 +206,9 @@ pub fn purchase_ticket<'info>(
     
     // 3. Create ticket (UUID防重复通过PDA init约束自动处理)
     let ticket = &mut ctx.accounts.ticket;
-    ticket.event_id = event_id.clone();
+    ticket.event_id = event_id;
     ticket.ticket_type_id = type_id.clone();
-    ticket.ticket_uuid = ticket_uuid.clone();
+    ticket.ticket_uuid = ticket_uuid;
     ticket.owner = ctx.accounts.buyer.key();
     ticket.original_owner = ctx.accounts.buyer.key();
     ticket.resale_count = 0;
@@ -473,7 +473,7 @@ pub fn purchase_ticket<'info>(
     // This would involve calling the Token 2022 program to create extension fields
     // For now, we log the extension data that would be stored
     msg!(
-        "NFT minted with extension fields: seat={}:{}, event={}, uuid={}, price={}", 
+        "NFT minted with extension fields: seat={}:{}, event={:?}, uuid={:?}, price={}", 
         row_number, column_number, event_id, ticket_uuid, ticket_price
     );
     
@@ -502,7 +502,7 @@ pub fn purchase_ticket<'info>(
         }
     }
     
-    msg!("Ticket purchased: UUID {}", ticket.ticket_uuid);
+    msg!("Ticket purchased: UUID {:?}", ticket.ticket_uuid);
     
     Ok(())
 }
