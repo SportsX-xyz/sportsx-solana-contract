@@ -82,6 +82,7 @@ describe("SportsX Ticketing Program", () => {
   // Convert to [u8; 32] with padding
   const EVENT_ID_BYTES = Buffer.alloc(32);
   Buffer.from(EVENT_ID).copy(EVENT_ID_BYTES);
+  
   const PLATFORM_FEE = 100_000; // 0.1 USDC
   const TICKET_PRICE = 50_000_000; // 50 USDC
 
@@ -287,7 +288,7 @@ describe("SportsX Ticketing Program", () => {
     it("Creates an event (Active status by default)", async () => {
       await program.methods
         .createEvent(
-          EVENT_ID_BYTES, // Convert to [u8; 32]
+          EVENT_ID_BYTES, // [u8; 32]
           "Test Event Name",
           "TEST",
           "ipfs://test-metadata",
@@ -308,6 +309,9 @@ describe("SportsX Ticketing Program", () => {
 
       const event = await program.account.eventAccount.fetch(eventPda);
       assert.deepEqual(event.eventId, Array.from(EVENT_ID_BYTES));
+      assert.equal(event.name, "Test Event Name");
+      assert.equal(event.symbol, "TEST");
+      assert.equal(event.metadataUri, "ipfs://test-metadata");
       assert.equal(event.organizer.toString(), deployer.publicKey.toString());
       assert.equal(event.status, 1); // Active by default
     });

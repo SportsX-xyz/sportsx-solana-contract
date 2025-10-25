@@ -308,9 +308,9 @@ pub fn purchase_ticket<'info>(
         &ctx.accounts.mint_authority.key(),
         &ctx.accounts.ticket_mint.key(),
         &ctx.accounts.mint_authority.key(),
-        name,
-        symbol,
-        uri,
+        name.clone(),
+        symbol.clone(),
+        uri.clone(),
     );
 
     anchor_lang::solana_program::program::invoke_signed(
@@ -332,7 +332,7 @@ pub fn purchase_ticket<'info>(
         &ctx.accounts.ticket_mint.key(),
         &ctx.accounts.mint_authority.key(),
         Field::Name,
-        ctx.accounts.event.name.clone(),
+        name.clone(),
     );
     anchor_lang::solana_program::program::invoke_signed(
         &update_name_ix,
@@ -350,7 +350,7 @@ pub fn purchase_ticket<'info>(
         &ctx.accounts.ticket_mint.key(),
         &ctx.accounts.mint_authority.key(),
         Field::Symbol,
-        ctx.accounts.event.symbol.clone(),
+        symbol.clone(),
     );
     anchor_lang::solana_program::program::invoke_signed(
         &update_symbol_ix,
@@ -368,7 +368,7 @@ pub fn purchase_ticket<'info>(
         &ctx.accounts.ticket_mint.key(),
         &ctx.accounts.mint_authority.key(),
         Field::Uri,
-        ctx.accounts.event.metadata_uri.clone(),
+        uri.clone(),
     );
     anchor_lang::solana_program::program::invoke_signed(
         &update_uri_ix,

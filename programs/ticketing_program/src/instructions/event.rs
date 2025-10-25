@@ -4,7 +4,7 @@ use crate::errors::ErrorCode;
 
 /// Create a new event
 #[derive(Accounts)]
-#[instruction(event_id: [u8; 32])]
+#[instruction(event_id: [u8; 32], name: String, symbol: String, metadata_uri: String)]
 pub struct CreateEvent<'info> {
     #[account(
         seeds = [PlatformConfig::SEED_PREFIX],
