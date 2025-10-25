@@ -79,6 +79,9 @@ describe("SportsX Ticketing Program", () => {
 
   // Test Data
   const EVENT_ID = "test_event_001";
+  // Convert to [u8; 32] with padding
+  const EVENT_ID_BYTES = Buffer.alloc(32);
+  Buffer.from(EVENT_ID).copy(EVENT_ID_BYTES);
   const PLATFORM_FEE = 100_000; // 0.1 USDC
   const TICKET_PRICE = 50_000_000; // 50 USDC
 
@@ -172,7 +175,7 @@ describe("SportsX Ticketing Program", () => {
     );
 
     [eventPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("event"), Buffer.from(EVENT_ID)],
+      [Buffer.from("event"), EVENT_ID_BYTES],
       program.programId
     );
 
@@ -284,7 +287,7 @@ describe("SportsX Ticketing Program", () => {
     it("Creates an event (Active status by default)", async () => {
       await program.methods
         .createEvent(
-          EVENT_ID,
+          EVENT_ID_BYTES, // Convert to [u8; 32]
           "Test Event Name",
           "TEST",
           "ipfs://test-metadata",
@@ -304,7 +307,7 @@ describe("SportsX Ticketing Program", () => {
         .rpc();
 
       const event = await program.account.eventAccount.fetch(eventPda);
-      assert.equal(event.eventId, EVENT_ID);
+      assert.deepEqual(event.eventId, Array.from(EVENT_ID_BYTES));
       assert.equal(event.organizer.toString(), deployer.publicKey.toString());
       assert.equal(event.status, 1); // Active by default
     });
@@ -313,14 +316,14 @@ describe("SportsX Ticketing Program", () => {
       [checkinAuthorityPda] = PublicKey.findProgramAddressSync(
         [
           Buffer.from("checkin_auth"),
-          Buffer.from(EVENT_ID),
+          EVENT_ID_BYTES,
           checkinOperator.publicKey.toBuffer(),
         ],
         program.programId
       );
 
       await program.methods
-        .addCheckinOperator(EVENT_ID, checkinOperator.publicKey)
+        .addCheckinOperator(EVENT_ID_BYTES, checkinOperator.publicKey)
         .accounts({
           platformConfig,
           event: eventPda,
@@ -349,7 +352,7 @@ describe("SportsX Ticketing Program", () => {
       [ticketPda] = PublicKey.findProgramAddressSync(
         [
           Buffer.from("ticket"),
-          Buffer.from(EVENT_ID),
+          EVENT_ID_BYTES,
           Buffer.from(ticketUuid),
         ],
         program.programId
@@ -413,8 +416,8 @@ describe("SportsX Ticketing Program", () => {
 
       await program.methods
         .purchaseTicket(
-          EVENT_ID, 
-          ticketUuid, 
+          EVENT_ID_BYTES, // Convert to [u8; 32]
+          Buffer.from(ticketUuid).slice(0, 32), // Convert to [u8; 32]
           new BN(TICKET_PRICE),
           5, // row_number
           10 // column_number
@@ -445,9 +448,9 @@ describe("SportsX Ticketing Program", () => {
 
       // Verify ticket created
       const ticket = await program.account.ticketAccount.fetch(ticketPda);
-      assert.equal(ticket.eventId, EVENT_ID);
+      assert.deepEqual(ticket.eventId, Array.from(EVENT_ID_BYTES));
       assert.equal(ticket.owner.toString(), buyer.publicKey.toString());
-      assert.equal(ticket.ticketUuid, ticketUuid);
+      assert.deepEqual(ticket.ticketUuid, Array.from(Buffer.from(ticketUuid).slice(0, 32)));
       assert.equal(ticket.isCheckedIn, false);
       assert.equal(ticket.rowNumber, 5);
       assert.equal(ticket.columnNumber, 10);
@@ -494,7 +497,7 @@ describe("SportsX Ticketing Program", () => {
       const ticketMint2Keypair = Keypair.generate();
       
       const [ticket2Pda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("ticket"), Buffer.from(EVENT_ID), Buffer.from(ticketUuid2)],
+        [Buffer.from("ticket"), EVENT_ID_BYTES, Buffer.from(ticketUuid2)],
         program.programId
       );
 
@@ -509,8 +512,8 @@ describe("SportsX Ticketing Program", () => {
 
       await program.methods
         .purchaseTicket(
-          EVENT_ID, 
-          ticketUuid2, 
+          EVENT_ID_BYTES, // Convert to [u8; 32]
+          Buffer.from(ticketUuid2).slice(0, 32), // Convert to [u8; 32]
           new BN(TICKET_PRICE),
           6, // row_number
           11 // column_number
@@ -768,7 +771,7 @@ describe("SportsX Ticketing Program", () => {
       // Try to check-in (should fail - owner is program_authority, not user)
       try {
         await program.methods
-          .checkInTicket(EVENT_ID)
+          .checkInTicket(EVENT_ID_BYTES)
           .accounts({
             event: eventPda,
             checkinAuthority: checkinAuthorityPda,
@@ -807,7 +810,7 @@ describe("SportsX Ticketing Program", () => {
         const ticketUuid4 = randomUUID().replace(/-/g, '');
 
         const [newTicketPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("ticket"), Buffer.from(EVENT_ID), Buffer.from(ticketUuid4)],
+          [Buffer.from("ticket"), EVENT_ID_BYTES, Buffer.from(ticketUuid4)],
           program.programId
         );
 
@@ -822,8 +825,8 @@ describe("SportsX Ticketing Program", () => {
 
         await program.methods
         .purchaseTicket(
-          EVENT_ID, 
-          ticketUuid4, 
+          EVENT_ID_BYTES, // Convert to [u8; 32]
+          Buffer.from(ticketUuid4).slice(0, 32), // Convert to [u8; 32]
           new BN(TICKET_PRICE),
           8, // row_number
           13 // column_number
@@ -854,7 +857,7 @@ describe("SportsX Ticketing Program", () => {
 
         // Use the new ticket for check-in
         await program.methods
-          .checkInTicket(EVENT_ID)
+          .checkInTicket(EVENT_ID_BYTES)
           .accounts({
             event: eventPda,
             checkinAuthority: checkinAuthorityPda,
@@ -872,7 +875,7 @@ describe("SportsX Ticketing Program", () => {
       } else {
         // Original ticket is not checked in, proceed normally
         await program.methods
-          .checkInTicket(EVENT_ID)
+          .checkInTicket(EVENT_ID_BYTES)
           .accounts({
             event: eventPda,
             checkinAuthority: checkinAuthorityPda,
@@ -900,7 +903,7 @@ describe("SportsX Ticketing Program", () => {
       const ticketUuid3 = randomUUID().replace(/-/g, '');
 
       const [newTicketPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("ticket"), Buffer.from(EVENT_ID), Buffer.from(ticketUuid3)],
+        [Buffer.from("ticket"), EVENT_ID_BYTES, Buffer.from(ticketUuid3)],
         program.programId
       );
 
@@ -915,8 +918,8 @@ describe("SportsX Ticketing Program", () => {
 
       await program.methods
         .purchaseTicket(
-          EVENT_ID, 
-          ticketUuid3, 
+          EVENT_ID_BYTES, // Convert to [u8; 32]
+          Buffer.from(ticketUuid3).slice(0, 32), // Convert to [u8; 32]
           new BN(TICKET_PRICE),
           7, // row_number
           12 // column_number
@@ -943,7 +946,7 @@ describe("SportsX Ticketing Program", () => {
 
       // Check-in with PoF
       await program.methods
-        .checkInTicket(EVENT_ID)
+        .checkInTicket(EVENT_ID_BYTES)
         .accounts({
           event: eventPda, checkinAuthority: checkinAuthorityPda,
           ticket: newTicketPda, 
@@ -966,7 +969,7 @@ describe("SportsX Ticketing Program", () => {
     it("Fails to check in already checked ticket", async () => {
       try {
         await program.methods
-          .checkInTicket(EVENT_ID)
+          .checkInTicket(EVENT_ID_BYTES)
           .accounts({
             event: eventPda,
             checkinAuthority: checkinAuthorityPda,

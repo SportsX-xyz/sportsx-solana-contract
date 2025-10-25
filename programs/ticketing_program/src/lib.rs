@@ -72,7 +72,7 @@ pub mod ticketing_program {
     /// Create a new event
     pub fn create_event(
         ctx: Context<CreateEvent>,
-        event_id: String,
+        event_id: [u8; 32],
         name: String,
         symbol: String,
         metadata_uri: String,
@@ -101,7 +101,7 @@ pub mod ticketing_program {
     /// Update event status
     pub fn update_event_status(
         ctx: Context<UpdateEventStatus>,
-        event_id: String,
+        event_id: [u8; 32],
         new_status: u8,
     ) -> Result<()> {
         instructions::event::update_event_status(ctx, event_id, new_status)
@@ -110,7 +110,7 @@ pub mod ticketing_program {
     /// Add a check-in operator for an event
     pub fn add_checkin_operator(
         ctx: Context<AddCheckInOperator>,
-        event_id: String,
+        event_id: [u8; 32],
         operator: Pubkey,
     ) -> Result<()> {
         instructions::event::add_checkin_operator(ctx, event_id, operator)
@@ -119,7 +119,7 @@ pub mod ticketing_program {
     /// Remove a check-in operator for an event
     pub fn remove_checkin_operator(
         ctx: Context<RemoveCheckInOperator>,
-        event_id: String,
+        event_id: [u8; 32],
         operator: Pubkey,
     ) -> Result<()> {
         instructions::event::remove_checkin_operator(ctx, event_id, operator)
@@ -130,16 +130,16 @@ pub mod ticketing_program {
     /// Purchase a ticket with backend authorization
     pub fn purchase_ticket<'info>(
         ctx: Context<'_, '_, '_, 'info, PurchaseTicket<'info>>,
-        event_id: String,
-        ticket_uuid: String,
+        event_id: [u8; 32],
+        ticket_uuid: [u8; 32],
         ticket_price: u64,
         row_number: u16,
         column_number: u16,
     ) -> Result<()> {
         instructions::purchase::purchase_ticket(
             ctx,
-            event_id.as_bytes().try_into().unwrap(),
-            ticket_uuid.as_bytes().try_into().unwrap(),
+            event_id,
+            ticket_uuid,
             ticket_price,
             row_number,
             column_number,

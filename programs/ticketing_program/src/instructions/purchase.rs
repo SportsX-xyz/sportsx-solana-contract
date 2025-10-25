@@ -229,7 +229,7 @@ pub fn purchase_ticket<'info>(
     // don't need to create and additional account.
     let meta_data_space = 250;
 
-    let rent = Rent::from_account_info(&ctx.accounts.rent)?;
+    // let rent = Rent::from_account_info(&ctx.accounts.rent)?;
     let lamports_required =  Rent::get()?.minimum_balance(space + meta_data_space);
 
     msg!(

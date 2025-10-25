@@ -2,8 +2,8 @@ use anchor_lang::prelude::*;
 
 #[account]
 pub struct CheckInAuthority {
-    /// Event ID (max 32 chars)
-    pub event_id: String,
+    /// Event ID (32 bytes)
+    pub event_id: [u8; 32],
     
     /// Operator public key
     pub operator: Pubkey,
@@ -18,7 +18,7 @@ pub struct CheckInAuthority {
 impl CheckInAuthority {
     pub const SEED_PREFIX: &'static [u8] = b"checkin_auth";
     
-    // 4+32 + 32 + 1 + 1 = 70 bytes
-    pub const SIZE: usize = 8 + 70;
+    // 32 + 32 + 1 + 1 = 66 bytes
+    pub const SIZE: usize = 8 + 66;
 }
 

@@ -4,7 +4,7 @@ use crate::errors::ErrorCode;
 
 /// Create a new event
 #[derive(Accounts)]
-#[instruction(event_id: String)]
+#[instruction(event_id: [u8; 32])]
 pub struct CreateEvent<'info> {
     #[account(
         seeds = [PlatformConfig::SEED_PREFIX],
@@ -16,7 +16,7 @@ pub struct CreateEvent<'info> {
         init,
         payer = organizer,
         space = EventAccount::SIZE,
-        seeds = [EventAccount::SEED_PREFIX, event_id.as_bytes()],
+        seeds = [EventAccount::SEED_PREFIX, &event_id],
         bump
     )]
     pub event: Account<'info, EventAccount>,
@@ -32,7 +32,7 @@ pub struct CreateEvent<'info> {
 
 pub fn create_event(
     ctx: Context<CreateEvent>,
-    event_id: String,
+    event_id: [u8; 32],
     name: String,
     symbol: String,
     metadata_uri: String,
@@ -45,7 +45,7 @@ pub fn create_event(
 ) -> Result<()> {
     let event = &mut ctx.accounts.event;
     
-    event.event_id = event_id.as_bytes().try_into().unwrap();
+    event.event_id = event_id;
     event.name = name;
     event.symbol = symbol;
     event.organizer = ctx.accounts.organizer.key();
@@ -66,11 +66,11 @@ pub fn create_event(
 
 /// Update event status
 #[derive(Accounts)]
-#[instruction(event_id: String)]
+#[instruction(event_id: [u8; 32])]
 pub struct UpdateEventStatus<'info> {
     #[account(
         mut,
-        seeds = [EventAccount::SEED_PREFIX, event_id.as_bytes()],
+        seeds = [EventAccount::SEED_PREFIX, &event_id],
         bump = event.bump,
         constraint = event.organizer == organizer.key() @ ErrorCode::Unauthorized
     )]
@@ -81,7 +81,7 @@ pub struct UpdateEventStatus<'info> {
 
 pub fn update_event_status(
     ctx: Context<UpdateEventStatus>,
-    _event_id: String,
+    _event_id: [u8; 32],
     new_status: u8,
 ) -> Result<()> {
     require!(new_status <= 2, ErrorCode::InvalidEventStatus);
@@ -96,7 +96,7 @@ pub fn update_event_status(
 
 /// Add check-in operator for an event
 #[derive(Accounts)]
-#[instruction(event_id: String, operator: Pubkey)]
+#[instruction(event_id: [u8; 32], operator: Pubkey)]
 pub struct AddCheckInOperator<'info> {
     #[account(
         seeds = [PlatformConfig::SEED_PREFIX],
@@ -105,7 +105,7 @@ pub struct AddCheckInOperator<'info> {
     pub platform_config: Account<'info, PlatformConfig>,
     
     #[account(
-        seeds = [EventAccount::SEED_PREFIX, event_id.as_bytes()],
+        seeds = [EventAccount::SEED_PREFIX, &event_id],
         bump = event.bump
     )]
     pub event: Account<'info, EventAccount>,
@@ -114,7 +114,7 @@ pub struct AddCheckInOperator<'info> {
         init,
         payer = admin,
         space = CheckInAuthority::SIZE,
-        seeds = [CheckInAuthority::SEED_PREFIX, event_id.as_bytes(), operator.as_ref()],
+        seeds = [CheckInAuthority::SEED_PREFIX, &event_id, operator.as_ref()],
         bump
     )]
     pub checkin_authority: Account<'info, CheckInAuthority>,
@@ -130,7 +130,7 @@ pub struct AddCheckInOperator<'info> {
 
 pub fn add_checkin_operator(
     ctx: Context<AddCheckInOperator>,
-    event_id: String,
+    event_id: [u8; 32],
     operator: Pubkey,
 ) -> Result<()> {
     let checkin_authority = &mut ctx.accounts.checkin_authority;
@@ -147,7 +147,7 @@ pub fn add_checkin_operator(
 
 /// Remove check-in operator for an event
 #[derive(Accounts)]
-#[instruction(event_id: String, operator: Pubkey)]
+#[instruction(event_id: [u8; 32], operator: Pubkey)]
 pub struct RemoveCheckInOperator<'info> {
     #[account(
         seeds = [PlatformConfig::SEED_PREFIX],
@@ -156,14 +156,14 @@ pub struct RemoveCheckInOperator<'info> {
     pub platform_config: Account<'info, PlatformConfig>,
     
     #[account(
-        seeds = [EventAccount::SEED_PREFIX, event_id.as_bytes()],
+        seeds = [EventAccount::SEED_PREFIX, &event_id],
         bump = event.bump
     )]
     pub event: Account<'info, EventAccount>,
     
     #[account(
         mut,
-        seeds = [CheckInAuthority::SEED_PREFIX, event_id.as_bytes(), operator.as_ref()],
+        seeds = [CheckInAuthority::SEED_PREFIX, &event_id, operator.as_ref()],
         bump = checkin_authority.bump
     )]
     pub checkin_authority: Account<'info, CheckInAuthority>,
@@ -176,7 +176,7 @@ pub struct RemoveCheckInOperator<'info> {
 
 pub fn remove_checkin_operator(
     ctx: Context<RemoveCheckInOperator>,
-    _event_id: String,
+    _event_id: [u8; 32],
     _operator: Pubkey,
 ) -> Result<()> {
     let checkin_authority = &mut ctx.accounts.checkin_authority;
