@@ -3,14 +3,14 @@ use anchor_lang::prelude::*;
 /// Circular buffer for nonce tracking with time-based expiration
 #[account]
 pub struct NonceTracker {
-    /// Circular buffer of nonces (last 10 entries, good for testing)
-    pub nonces: [u64; 10],
+    /// Circular buffer of nonces (last 5 entries, reduced for stack optimization)
+    pub nonces: [u64; 5],
     
     /// Buyer address for each nonce (for collision prevention)
-    pub buyers: [Pubkey; 10],
+    pub buyers: [Pubkey; 5],
     
     /// Timestamps for each nonce entry
-    pub timestamps: [i64; 10],
+    pub timestamps: [i64; 5],
     
     /// Next index to write (circular)
     pub next_index: u16,
@@ -18,11 +18,11 @@ pub struct NonceTracker {
 
 impl NonceTracker {
     pub const SEED_PREFIX: &'static [u8] = b"nonce_tracker";
-    pub const BUFFER_SIZE: usize = 10;
+    pub const BUFFER_SIZE: usize = 5;
     pub const EXPIRY_SECONDS: i64 = 600; // 10 minutes (long after 60s auth expiry)
     
-    // Size: 8 (discriminator) + 10*8 (nonces) + 10*32 (buyers) + 10*8 (timestamps) + 2 (index)
-    // = 8 + 80 + 320 + 80 + 2 = 490 bytes
+    // Size: 8 (discriminator) + 5*8 (nonces) + 5*32 (buyers) + 5*8 (timestamps) + 2 (index)
+    // = 8 + 40 + 160 + 40 + 2 = 250 bytes (reduced from 490 for stack optimization)
     pub const SIZE: usize = 8 + (Self::BUFFER_SIZE * 8) + (Self::BUFFER_SIZE * 32) + (Self::BUFFER_SIZE * 8) + 2;
     
     /// Check if nonce+buyer combination is already used

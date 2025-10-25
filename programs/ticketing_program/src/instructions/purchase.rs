@@ -294,7 +294,7 @@ pub fn purchase_ticket<'info>(
     )?;
     
     // Step 5: init metadata
-    // Use event metadata directly
+    // Clone strings once for reuse in multiple operations
     let name = ctx.accounts.event.name.clone();
     let symbol = ctx.accounts.event.symbol.clone();
     let uri = ctx.accounts.event.metadata_uri.clone();
