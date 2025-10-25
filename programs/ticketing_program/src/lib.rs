@@ -131,7 +131,6 @@ pub mod ticketing_program {
     pub fn purchase_ticket<'info>(
         ctx: Context<'_, '_, '_, 'info, PurchaseTicket<'info>>,
         event_id: String,
-        type_id: String,
         ticket_uuid: String,
         ticket_price: u64,
         row_number: u16,
@@ -140,7 +139,6 @@ pub mod ticketing_program {
         instructions::purchase::purchase_ticket(
             ctx,
             event_id.as_bytes().try_into().unwrap(),
-            type_id,
             ticket_uuid.as_bytes().try_into().unwrap(),
             ticket_price,
             row_number,

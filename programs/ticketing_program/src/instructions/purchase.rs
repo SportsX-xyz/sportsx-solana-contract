@@ -17,7 +17,7 @@ const MINT_AUTH_SEED: &[u8] = b"mint_authority";
 
 /// Purchase a ticket
 #[derive(Accounts)]
-#[instruction(event_id: [u8; 32], type_id: String, ticket_uuid: [u8; 32])]
+#[instruction(event_id: [u8; 32], ticket_uuid: [u8; 32])]
 pub struct PurchaseTicket<'info> {
     #[account(
         seeds = [PlatformConfig::SEED_PREFIX],
@@ -128,7 +128,6 @@ pub struct PurchaseTicket<'info> {
 pub fn purchase_ticket<'info>(
     ctx: Context<'_, '_, '_, 'info, PurchaseTicket<'info>>,
     event_id: [u8; 32],
-    type_id: String,
     ticket_uuid: [u8; 32],
     ticket_price: u64,
     row_number: u16,
@@ -207,7 +206,6 @@ pub fn purchase_ticket<'info>(
     // 3. Create ticket (UUID防重复通过PDA init约束自动处理)
     let ticket = &mut ctx.accounts.ticket;
     ticket.event_id = event_id;
-    ticket.ticket_type_id = type_id.clone();
     ticket.ticket_uuid = ticket_uuid;
     ticket.owner = ctx.accounts.buyer.key();
     ticket.original_owner = ctx.accounts.buyer.key();

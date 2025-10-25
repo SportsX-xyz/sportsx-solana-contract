@@ -79,7 +79,6 @@ describe("SportsX Ticketing Program", () => {
 
   // Test Data
   const EVENT_ID = "test_event_001";
-  const TICKET_TYPE_ID = "vip";
   const PLATFORM_FEE = 100_000; // 0.1 USDC
   const TICKET_PRICE = 50_000_000; // 50 USDC
 
@@ -415,7 +414,6 @@ describe("SportsX Ticketing Program", () => {
       await program.methods
         .purchaseTicket(
           EVENT_ID, 
-          TICKET_TYPE_ID, 
           ticketUuid, 
           new BN(TICKET_PRICE),
           5, // row_number
@@ -512,7 +510,6 @@ describe("SportsX Ticketing Program", () => {
       await program.methods
         .purchaseTicket(
           EVENT_ID, 
-          TICKET_TYPE_ID, 
           ticketUuid2, 
           new BN(TICKET_PRICE),
           6, // row_number
@@ -824,14 +821,13 @@ describe("SportsX Ticketing Program", () => {
       // Token 2022 extension fields will be used for check-in status
 
         await program.methods
-          .purchaseTicket(
-            EVENT_ID, 
-            TICKET_TYPE_ID, 
-            ticketUuid4, 
-            new BN(TICKET_PRICE),
-            8, // row_number
-            13 // column_number
-          )
+        .purchaseTicket(
+          EVENT_ID, 
+          ticketUuid4, 
+          new BN(TICKET_PRICE),
+          8, // row_number
+          13 // column_number
+        )
           .accounts({
             platformConfig,
             backendAuthority: backendAuthority.publicKey,
@@ -920,7 +916,6 @@ describe("SportsX Ticketing Program", () => {
       await program.methods
         .purchaseTicket(
           EVENT_ID, 
-          TICKET_TYPE_ID, 
           ticketUuid3, 
           new BN(TICKET_PRICE),
           7, // row_number
