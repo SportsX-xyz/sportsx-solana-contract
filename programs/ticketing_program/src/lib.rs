@@ -7,7 +7,7 @@ pub mod utils;
 
 use instructions::*;
 
-declare_id!("EFuMNTn1zfn6Zhvdq1Vjaxs83sz2gTWvDgjuJcKDYjhw");
+declare_id!("Ac3MCk6XeuHxq1m17TVvnSnjgpn6AgRD9WgLGR9cUKoH");
 
 #[program]
 pub mod ticketing_program {

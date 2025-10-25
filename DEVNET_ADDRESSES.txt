@@ -42,11 +42,35 @@ EXPLORER=https://explorer.solana.com/?cluster=devnet
 - 状态: ✅ 更新成功
 
 
-平台配置账户 ✅
-地址: gfWzPqLG24zSgVmnLdNzQRCoYjfRGWTyDnCQ4RZDe33
-类型: Platform Config
-其他账户 ✅
-门票权限账户 (5qSt1JKvdo5zwx8FZCd74ENz3hwHsU1xdeiDPkKBh8Hy)
-Nonce跟踪账户 (7M89JDEvhPPAjrgQ5xfWdbmT3ec1KZAQUFk3HqsrVYMw)
-检票权限账户 (6mL6gPPdq2k7LYyAi5majZ6diYeJC5RCiyiF4EzPzGNW)
-可能的门票或挂单账户 (BqtCoZyjEr5ZfrmnVp4PRiNzsMQnr4ur6pQbTcBPNEAq)
+====
+new ticket:
+🚀 Starting Ticketing Program Initialization...
+Admin wallet: 3nPsYeVZ92h8a5idvjmrgEVr5iGgU948VEoKdCj3bbQF
+Ticketing Program ID: Ac3MCk6XeuHxq1m17TVvnSnjgpn6AgRD9WgLGR9cUKoH
+⚠️  Warning: Current wallet is not the configured backend authority
+   Current: 3nPsYeVZ92h8a5idvjmrgEVr5iGgU948VEoKdCj3bbQF
+   Expected: DsSBRCNzwNTsYeh6zyQqqPJbQVBprPUaVmaPuegaeQBS
+
+📋 Step 1: Check Platform Initialization
+Platform Config PDA: HUQk24rE8VcL8EP4iCgJEjJDY1L6C8pJd5ZpUgWNZNU5
+Nonce Tracker PDA: idFGVZKgyKW68MHTUee1o6P2q96viH9PPBADt9m53DU
+Ticket Authority PDA: HieTshLMugzY8fi5bxbmhfcRq335fJovYTjgfVhQz6JC
+Initializing platform...
+
+📋 Initializing Platform Configuration
+✅ Platform initialized!
+   Transaction: 5m3TdsnffHdBu2sxz5d2bTstd7NVFvEiHNWkknxukrE7qLmitTro6oP7vGQV1ZZHKhpcjefRp9dN71xkXwJoRUBt
+
+🎉 Verification Complete!
+=====================================
+Ticketing Program ID: Ac3MCk6XeuHxq1m17TVvnSnjgpn6AgRD9WgLGR9cUKoH
+Platform Config PDA: HUQk24rE8VcL8EP4iCgJEjJDY1L6C8pJd5ZpUgWNZNU5
+Ticket Authority PDA: HieTshLMugzY8fi5bxbmhfcRq335fJovYTjgfVhQz6JC
+Update Authority: 3nPsYeVZ92h8a5idvjmrgEVr5iGgU948VEoKdCj3bbQF
+Backend Authority: DsSBRCNzwNTsYeh6zyQqqPJbQVBprPUaVmaPuegaeQBS
+Event Admin: DsSBRCNzwNTsYeh6zyQqqPJbQVBprPUaVmaPuegaeQBS
+Fee Receiver: F3muW7SHCjRWz9gPE639hkekbW2YxNUPA4r6mefZvzqx
+Fee Amount (USDC): 100000
+Is Paused: false
+=====================================
+✅ All configurations are correct!
